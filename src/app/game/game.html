@@ -1,0 +1,121 @@
+<div class="game">
+  <div class="stage">
+    <canvas #canvas></canvas>
+
+    @if (gameOver()) {
+      <div class="overlay">
+        <div class="overlay__card">
+          <h2>Board frozen over</h2>
+          <p>Every tile is coloured — the cube has nowhere left to neutralise.</p>
+          <dl>
+            <div><dt>Score</dt><dd>{{ score() }}</dd></div>
+            <div><dt>Tiles cleared</dt><dd>{{ cleared() }}</dd></div>
+            <div><dt>Best streak</dt><dd>{{ bestStreak() }}</dd></div>
+          </dl>
+          <button type="button" class="primary" (click)="restart()">Play again</button>
+        </div>
+      </div>
+    }
+  </div>
+
+  <aside class="panel">
+    <header class="brand">
+      <span class="brand__mark"></span>
+      <div>
+        <h1>Snowcube</h1>
+        <p>Roll the colour onto its match.</p>
+      </div>
+    </header>
+
+    <section class="stats">
+      <div class="stat"><span>Score</span><strong>{{ score() }}</strong></div>
+      <div class="stat"><span>Best</span><strong>{{ best() }}</strong></div>
+      <div class="stat"><span>Moves</span><strong>{{ moves() }}</strong></div>
+      <div class="stat"><span>Streak</span><strong>&times;{{ streak() }}</strong></div>
+    </section>
+
+    <section class="pressure">
+      <div class="pressure__head">
+        <span>Board coverage</span>
+        <span>{{ colored() }} / {{ tileCount() }}</span>
+      </div>
+      <div class="pressure__track">
+        <div class="pressure__fill" [style.width.%]="pressure()"></div>
+      </div>
+    </section>
+
+    <section class="faces">
+      <h2>Cube faces</h2>
+      <div class="faces__row">
+        <div class="chip chip--lg" [style.background]="css(bottomColor())">
+          <span>Landing</span>
+          <strong>{{ name(bottomColor()) }}</strong>
+        </div>
+        <div class="chip chip--sm" [style.background]="css(topColor())">
+          <span>Top</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="pad">
+      <h2>Move</h2>
+      <div class="pad__grid">
+        @for (button of pad; track button.direction) {
+          @let preview = previews()[button.direction];
+          <button
+            type="button"
+            class="pad__btn"
+            [class.pad__btn--match]="preview.matches"
+            [disabled]="!preview.legal"
+            [style.--face]="css(preview.landingColor)"
+            [title]="name(preview.landingColor) + ' face lands ' + button.direction"
+            (click)="move(button.direction)"
+          >
+            <span class="pad__glyph">{{ button.glyph }}</span>
+            <span class="pad__key">{{ button.key }}</span>
+          </button>
+        }
+      </div>
+      <p class="pad__hint">Each button is tinted with the face that will touch the floor.</p>
+    </section>
+
+    <section class="settings">
+      <h2>Setup</h2>
+      <div class="field">
+        <span>Board</span>
+        <div class="segmented">
+          <button type="button" [class.on]="boardSize() === 8" (click)="setBoardSize(8)">8 &times; 8</button>
+          <button type="button" [class.on]="boardSize() === 10" (click)="setBoardSize(10)">10 &times; 10</button>
+        </div>
+      </div>
+      <div class="field">
+        <span>New tile</span>
+        <div class="segmented">
+          <button type="button" [class.on]="spawnInterval() === 4" (click)="setSpawnInterval(4)">Calm</button>
+          <button type="button" [class.on]="spawnInterval() === 2" (click)="setSpawnInterval(2)">Steady</button>
+          <button type="button" [class.on]="spawnInterval() === 1" (click)="setSpawnInterval(1)">Every move</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" (click)="toggleHints()">{{ hints() ? 'Hints on' : 'Hints off' }}</button>
+        <button type="button" (click)="resetCamera()">Reset view</button>
+        <button type="button" class="primary" (click)="restart()">Restart</button>
+      </div>
+    </section>
+
+    <section class="legend">
+      <h2>Palette</h2>
+      <ul>
+        @for (color of palette; track color.name) {
+          <li><i [style.background]="color.css"></i>{{ color.name }}</li>
+        }
+        <li><i [style.background]="snow.css"></i>{{ snow.name }}</li>
+      </ul>
+    </section>
+
+    <footer class="help">
+      Arrows / WASD to roll &middot; click an adjacent tile &middot; drag to orbit &middot; scroll to zoom &middot;
+      <kbd>H</kbd> hints &middot; <kbd>R</kbd> restart
+    </footer>
+  </aside>
+</div>
