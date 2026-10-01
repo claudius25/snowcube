@@ -56,6 +56,10 @@ const BEAM_HEIGHT = 4.5;
 /** Enough beams for a streak to overlap without reusing one mid-flight. */
 const BEAM_POOL = 4;
 const DEFAULT_AZIMUTH = Math.PI / 4;
+/** Seconds for the camera to close most of the gap to the dragged angle. */
+const CAMERA_EASE = 0.11;
+/** How much of the last drag step keeps running after the pointer lifts. */
+const CAMERA_GLIDE = 3.5;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2.4;
 /** Fixed camera pitch — the view only orbits horizontally. */
@@ -223,6 +227,10 @@ export class GameRenderer {
   private beamTexture?: CanvasTexture;
 
   private azimuth = DEFAULT_AZIMUTH;
+  /** Where the drag wants the camera; `azimuth` chases this. */
+  private azimuthTarget = DEFAULT_AZIMUTH;
+  /** Smoothed angle per drag step, used to glide on release. */
+  private flick = 0;
   private zoom = 1;
   private elapsed = 0;
   private lastTime = 0;
@@ -388,13 +396,15 @@ export class GameRenderer {
 
   resetCamera(): void {
     this.azimuth = DEFAULT_AZIMUTH;
+    this.azimuthTarget = DEFAULT_AZIMUTH;
+    this.flick = 0;
     this.zoom = 1;
     this.resize();
   }
 
   /** Maps a screen-relative key to a board direction for the current camera angle. */
   resolveDirection(key: ScreenKey): Direction {
-    const quarter = Math.round((this.azimuth - DEFAULT_AZIMUTH) / (Math.PI / 2));
+    const quarter = Math.round((this.azimuthTarget - DEFAULT_AZIMUTH) / (Math.PI / 2));
     const base = { up: 0, right: 1, down: 2, left: 3 }[key];
     return ORDER[(((base - quarter) % 4) + 4) % 4];
   }
@@ -427,7 +437,7 @@ export class GameRenderer {
   /** Scripted camera orbit; a real drag cuts it short. */
   playSpin(delta: number, seconds: number, done: () => void): void {
     this.endSpin();
-    this.spin = { from: this.azimuth, delta, seconds, done, t: 0 };
+    this.spin = { from: this.azimuthTarget, delta, seconds, done, t: 0 };
   }
 
   private endSpin(): void {
@@ -769,6 +779,7 @@ export class GameRenderer {
     this.updateRoll(dt);
     this.updateBump(dt);
     this.updateSpin(dt);
+    this.updateAzimuth(dt);
     this.updateTiles(dt);
     this.updateBeams(dt);
     this.renderer.render(this.scene, this.camera);
@@ -823,10 +834,24 @@ export class GameRenderer {
     if (!spin) return;
 
     spin.t = Math.min(1, spin.t + dt / spin.seconds);
-    this.azimuth = spin.from + easeInOutQuad(spin.t) * spin.delta;
-    this.updateCamera();
+    this.azimuthTarget = spin.from + easeInOutQuad(spin.t) * spin.delta;
 
     if (spin.t >= 1) this.endSpin();
+  }
+
+  /** Frame-rate independent glide of the camera towards the angle the drag asked for. */
+  private updateAzimuth(dt: number): void {
+    const diff = this.azimuthTarget - this.azimuth;
+    if (Math.abs(diff) < 1e-5) {
+      if (diff !== 0) {
+        this.azimuth = this.azimuthTarget;
+        this.updateCamera();
+      }
+      return;
+    }
+
+    this.azimuth += diff * (1 - Math.exp(-dt / CAMERA_EASE));
+    this.updateCamera();
   }
 
   private updateTiles(dt: number): void {
@@ -910,6 +935,7 @@ export class GameRenderer {
     if (this.pointers.size === 1) {
       this.dragging = true;
       this.dragged = false;
+      this.flick = 0;
       this.lastPointer.set(event.clientX, event.clientY);
     } else if (this.pointers.size === 2) {
       this.pinchGap = this.pointerSpread();
@@ -942,8 +968,9 @@ export class GameRenderer {
 
     if (!this.allowRotate) return;
     this.endSpin();
-    this.azimuth -= dx * 0.006;
-    this.updateCamera();
+    const step = -dx * 0.006;
+    this.azimuthTarget += step;
+    this.flick = this.flick * 0.6 + step * 0.4;
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
@@ -963,6 +990,10 @@ export class GameRenderer {
     this.pinchGap = 0;
     if (!this.dragging) return;
     this.dragging = false;
+    if (this.allowRotate) {
+      this.azimuthTarget += this.flick * CAMERA_GLIDE;
+      this.flick = 0;
+    }
     if (this.dragged || !this.onTileSelect) return;
 
     const rect = this.canvas.getBoundingClientRect();

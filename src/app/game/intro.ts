@@ -205,9 +205,7 @@ export class Intro implements AfterViewInit, OnDestroy {
   }
 
   private orbit(): Promise<void> {
-    return this.defer((resolve) =>
-      this.renderer?.playSpin(Math.PI / 2, SPIN_SECONDS, resolve),
-    );
+    return this.defer((resolve) => this.renderer?.playSpin(Math.PI / 2, SPIN_SECONDS, resolve));
   }
 
   private roll(outcome: MoveOutcome): Promise<void> {
