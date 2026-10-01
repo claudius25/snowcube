@@ -42,11 +42,7 @@ import {
   TILE,
   UP,
 } from './engine';
-import {
-  cellTexture,
-  CUBE_ATLAS,
-  loadAtlas,
-} from './textures';
+import { cellTexture, CUBE_ATLAS, loadAtlas } from './textures';
 
 const ROLL_SECONDS = 0.22;
 const BUMP_SECONDS = 0.18;
@@ -183,6 +179,10 @@ function clamp(v: number, min: number, max: number): number {
 export class GameRenderer {
   onTileSelect?: (cell: Cell) => void;
 
+  /** The intro locks the camera so its DOM overlays stay glued to the board. */
+  allowZoom = true;
+  allowRotate = true;
+
   private readonly scene = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
   private readonly board = new Group();
@@ -292,6 +292,21 @@ export class GameRenderer {
   setHints(enabled: boolean): void {
     this.hints = enabled;
     this.refreshHints();
+  }
+
+  /** Re-reads the tile colours from the engine, e.g. after a scripted setup. */
+  refreshTiles(instant = false): void {
+    this.syncTiles(instant);
+    this.refreshHints();
+  }
+
+  /** Canvas-space pixel position of a cell's centre, for DOM overlays. */
+  projectCell(cell: Cell): Vector2 {
+    const point = this.worldPosition(cell.x, cell.z).project(this.camera);
+    return new Vector2(
+      (point.x * 0.5 + 0.5) * this.canvas.clientWidth,
+      (point.y * -0.5 + 0.5) * this.canvas.clientHeight,
+    );
   }
 
   /** Swaps in the authored cube once it resolves; the box is the fallback until then. */
@@ -878,7 +893,7 @@ export class GameRenderer {
 
     if (this.pointers.size >= 2) {
       const gap = this.pointerSpread();
-      if (this.pinchGap > 0 && gap > 0) {
+      if (this.allowZoom && this.pinchGap > 0 && gap > 0) {
         this.zoom = clamp(this.zoom * (gap / this.pinchGap), MIN_ZOOM, MAX_ZOOM);
         this.updateProjection();
       }
@@ -890,6 +905,7 @@ export class GameRenderer {
     if (Math.abs(dx) + Math.abs(dy) > 3) this.dragged = true;
     this.lastPointer.set(event.clientX, event.clientY);
 
+    if (!this.allowRotate) return;
     this.azimuth -= dx * 0.006;
     this.updateCamera();
   };
@@ -932,6 +948,7 @@ export class GameRenderer {
 
   private readonly onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    if (!this.allowZoom) return;
     this.zoom = clamp(this.zoom * (1 - event.deltaY * 0.0012), MIN_ZOOM, MAX_ZOOM);
     this.updateProjection();
   };

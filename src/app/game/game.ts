@@ -88,12 +88,6 @@ export class Game implements AfterViewInit, OnDestroy {
     this.restart();
   }
 
-  setSpawnInterval(interval: number): void {
-    if (interval === this.spawnInterval()) return;
-    this.spawnInterval.set(interval);
-    this.restart();
-  }
-
   @HostListener('window:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
     if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey) return;

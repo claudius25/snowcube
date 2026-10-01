@@ -1,1 +1,5 @@
-<app-game />
+@if (playing()) {
+  <app-game />
+} @else {
+  <app-intro (done)="playing.set(true)" />
+}

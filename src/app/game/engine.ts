@@ -73,7 +73,7 @@ export interface GameOptions {
   seedTiles: number;
 }
 
-export const DEFAULT_OPTIONS: GameOptions = { size: 7, spawnInterval: 2, seedTiles: 3 };
+export const DEFAULT_OPTIONS: GameOptions = { size: 7, spawnInterval: 1, seedTiles: 3 };
 
 /**
  * Pure game state: the board, the cube's cell and its orientation.
@@ -227,8 +227,11 @@ export class GameEngine {
       this.streak = 0;
     }
 
+    // A match buys the player that move: nothing new is coloured.
     let spawned: SpawnedTile | null = null;
-    if (++this.movesSinceSpawn >= this.spawnInterval) {
+    if (neutralized) {
+      this.movesSinceSpawn = 0;
+    } else if (++this.movesSinceSpawn >= this.spawnInterval) {
       this.movesSinceSpawn = 0;
       spawned = this.spawn();
       if (!spawned) this.gameOver = true;
