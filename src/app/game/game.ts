@@ -10,7 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Cell, DEFAULT_OPTIONS, Direction, GameEngine } from './engine';
-import { GameRenderer, ScreenKey } from './renderer';
+import { CubeStyle, GameRenderer, ScreenKey } from './renderer';
 
 const BEST_SCORE_KEY = 'snowcube.best';
 
@@ -26,6 +26,7 @@ export class Game implements AfterViewInit, OnDestroy {
   private readonly engine = new GameEngine();
   private renderer?: GameRenderer;
   private queued: Direction | null = null;
+  private modelReady = false;
 
   readonly boardSizes: readonly number[] = [6, 7, 8, 10];
 
@@ -41,6 +42,9 @@ export class Game implements AfterViewInit, OnDestroy {
   readonly boardSize = signal(DEFAULT_OPTIONS.size);
   readonly spawnInterval = signal(DEFAULT_OPTIONS.spawnInterval);
   readonly hints = signal(true);
+  readonly cubeStyle = signal<CubeStyle>('box');
+  readonly modelLoading = signal(false);
+  readonly modelFailed = signal(false);
 
   readonly tileCount = computed(() => this.boardSize() * this.boardSize());
   readonly pressure = computed(() => Math.round((this.colored() / this.tileCount()) * 100));
@@ -48,6 +52,12 @@ export class Game implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.renderer = new GameRenderer(this.canvasRef().nativeElement, this.engine);
     this.renderer.onTileSelect = (cell) => this.selectTile(cell);
+    this.renderer.onCubeModel = (loaded) => {
+      this.modelReady = loaded;
+      this.modelLoading.set(false);
+      this.modelFailed.set(!loaded);
+      if (!loaded) this.cubeStyle.set('box');
+    };
     this.renderer.mount();
     this.renderer.setHints(this.hints());
     this.sync();
@@ -99,6 +109,14 @@ export class Game implements AfterViewInit, OnDestroy {
   toggleHints(): void {
     this.hints.update((on) => !on);
     this.renderer?.setHints(this.hints());
+  }
+
+  setCubeStyle(style: CubeStyle): void {
+    if (style === this.cubeStyle()) return;
+    this.cubeStyle.set(style);
+    this.modelFailed.set(false);
+    this.modelLoading.set(style === 'frame' && !this.modelReady);
+    this.renderer?.setCubeStyle(style);
   }
 
   resetCamera(): void {

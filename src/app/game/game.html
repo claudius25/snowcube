@@ -87,6 +87,25 @@
           </button>
         </div>
       </div>
+      <div class="field">
+        <span>Cube</span>
+        <div class="segmented">
+          <button type="button" [class.on]="cubeStyle() === 'box'" (click)="setCubeStyle('box')">
+            Classic
+          </button>
+          <button
+            type="button"
+            [class.on]="cubeStyle() === 'frame'"
+            [disabled]="modelLoading()"
+            (click)="setCubeStyle('frame')"
+          >
+            {{ modelLoading() ? 'Loading…' : 'Frame' }}
+          </button>
+        </div>
+      </div>
+      @if (modelFailed()) {
+        <p class="note">Frame model could not be loaded — using the classic cube.</p>
+      }
       <div class="actions">
         <button type="button" (click)="toggleHints()">
           {{ hints() ? 'Hints on' : 'Hints off' }}

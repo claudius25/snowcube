@@ -1,0 +1,581 @@
+[
+  {
+    "id": 1,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "War is a matter of life and death, and must be studied carefully."
+  },
+  {
+    "id": 2,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "Consider moral influence, weather, terrain, leadership, and discipline."
+  },
+  {
+    "id": 3,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "Compare the opposing sides before predicting success."
+  },
+  { "id": 4, "chapter": 1, "type": "paraphrase", "quote": "All warfare is based on deception." },
+  { "id": 5, "chapter": 1, "type": "paraphrase", "quote": "When capable, appear incapable." },
+  { "id": 6, "chapter": 1, "type": "paraphrase", "quote": "When active, appear inactive." },
+  {
+    "id": 7,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "When near, make the opponent believe you are far away."
+  },
+  {
+    "id": 8,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "When far away, make the opponent believe you are near."
+  },
+  {
+    "id": 9,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "Offer an advantage to draw the opponent forward."
+  },
+  {
+    "id": 10,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "If the opponent is secure everywhere, prepare carefully."
+  },
+
+  {
+    "id": 11,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "If the opponent is stronger, avoid direct confrontation."
+  },
+  {
+    "id": 12,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "Attack where the opponent is unprepared."
+  },
+  { "id": 13, "chapter": 1, "type": "paraphrase", "quote": "Appear where you are not expected." },
+  {
+    "id": 14,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "Keep the plans that lead to victory secret."
+  },
+  {
+    "id": 15,
+    "chapter": 1,
+    "type": "paraphrase",
+    "quote": "Careful calculation before conflict increases the chance of success."
+  },
+
+  {
+    "id": 16,
+    "chapter": 2,
+    "type": "paraphrase",
+    "quote": "A prolonged campaign drains strength and resources."
+  },
+  {
+    "id": 17,
+    "chapter": 2,
+    "type": "paraphrase",
+    "quote": "When victory takes too long, enthusiasm fades."
+  },
+  {
+    "id": 18,
+    "chapter": 2,
+    "type": "paraphrase",
+    "quote": "There is no example of a nation benefiting from prolonged warfare."
+  },
+  {
+    "id": 19,
+    "chapter": 2,
+    "type": "paraphrase",
+    "quote": "Understand the dangers of conflict before expecting to profit from it."
+  },
+  {
+    "id": 20,
+    "chapter": 2,
+    "type": "paraphrase",
+    "quote": "Value victory, not prolonged struggle."
+  },
+
+  {
+    "id": 21,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Preserving something intact is better than destroying it."
+  },
+  {
+    "id": 22,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Winning every battle is not the highest form of excellence."
+  },
+  {
+    "id": 23,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "The highest excellence is overcoming resistance without fighting."
+  },
+  {
+    "id": 24,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "The highest form of strategy is to frustrate the opponent's plans."
+  },
+  {
+    "id": 25,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Next best is preventing opposing forces from joining together."
+  },
+  {
+    "id": 26,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Attacking fortified positions should be a last resort."
+  },
+  {
+    "id": 27,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "A skillful leader overcomes forces without unnecessary conflict."
+  },
+  {
+    "id": 28,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "If you greatly outnumber the opponent, surround them."
+  },
+  {
+    "id": 29,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "If evenly matched, you may offer battle."
+  },
+  {
+    "id": 30,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "If weaker, know when withdrawal is necessary."
+  },
+
+  {
+    "id": 31,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Know when to engage and when not to engage."
+  },
+  {
+    "id": 32,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Know how to handle both superior and inferior forces."
+  },
+  {
+    "id": 33,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Preparation creates opportunities for victory."
+  },
+  { "id": 34, "chapter": 3, "type": "paraphrase", "quote": "Know the opponent and know yourself." },
+  {
+    "id": 35,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Knowing yourself and your opponent removes much uncertainty."
+  },
+  {
+    "id": 36,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Knowing yourself but not the opponent brings mixed results."
+  },
+  {
+    "id": 37,
+    "chapter": 3,
+    "type": "paraphrase",
+    "quote": "Knowing neither yourself nor the opponent invites failure."
+  },
+
+  {
+    "id": 38,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "First make yourself difficult to defeat."
+  },
+  {
+    "id": 39,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "Then wait for an opportunity to overcome the opponent."
+  },
+  {
+    "id": 40,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "Preventing your own defeat lies within your control."
+  },
+  {
+    "id": 41,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "An opportunity for victory often comes from the opponent."
+  },
+  {
+    "id": 42,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "One may understand victory without yet being able to achieve it."
+  },
+  {
+    "id": 43,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "Skillful defense makes defeat difficult."
+  },
+  {
+    "id": 44,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "Great skill is not merely seeing an obvious victory."
+  },
+  {
+    "id": 45,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "The clever strategist wins with apparent ease."
+  },
+  {
+    "id": 46,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "Reliable success comes from avoiding mistakes."
+  },
+  {
+    "id": 47,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "Put yourself where defeat is unlikely, then recognize the right moment."
+  },
+  {
+    "id": 48,
+    "chapter": 4,
+    "type": "paraphrase",
+    "quote": "The victorious strategist prepares success before seeking confrontation."
+  },
+
+  {
+    "id": 49,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Managing many people follows the same principles as managing a few."
+  },
+  {
+    "id": 50,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Organization makes a large force manageable."
+  },
+  {
+    "id": 51,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Direct methods begin contests; indirect methods often decide them."
+  },
+  {
+    "id": 52,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Direct and indirect methods can produce endless combinations."
+  },
+  {
+    "id": 53,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Few basic elements can create countless combinations."
+  },
+  {
+    "id": 54,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Apparent disorder can conceal discipline."
+  },
+  {
+    "id": 55,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Apparent weakness can conceal strength."
+  },
+  {
+    "id": 56,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "Use circumstances to create momentum."
+  },
+  {
+    "id": 57,
+    "chapter": 5,
+    "type": "paraphrase",
+    "quote": "A skilled strategist seeks victory from the situation, not from individuals alone."
+  },
+
+  {
+    "id": 58,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "The one who arrives first is rested; the one who rushes in later is exhausted."
+  },
+  {
+    "id": 59,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Make the opponent respond to you rather than responding to them."
+  },
+  {
+    "id": 60,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Advantages can entice an opponent to move."
+  },
+  {
+    "id": 61,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Appear where the opponent must hurry to defend."
+  },
+  {
+    "id": 62,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Move rapidly toward places where you are unexpected."
+  },
+  {
+    "id": 63,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Progress is easiest where there is little opposition."
+  },
+  {
+    "id": 64,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Success is more certain when you target what is poorly defended."
+  },
+  {
+    "id": 65,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Defend positions that are difficult to challenge."
+  },
+  {
+    "id": 66,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "The skilled attacker leaves the opponent uncertain where to defend."
+  },
+  {
+    "id": 67,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "The skilled defender leaves the opponent uncertain where to attack."
+  },
+  {
+    "id": 68,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Force the opponent to reveal their formation while concealing your own."
+  },
+  {
+    "id": 69,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Concentrate your strength while encouraging the opponent to divide theirs."
+  },
+  {
+    "id": 70,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Numbers alone do not guarantee advantage."
+  },
+  {
+    "id": 71,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Do not repeat tactics simply because they succeeded once."
+  },
+  {
+    "id": 72,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Adapt your methods to changing circumstances."
+  },
+  { "id": 73, "chapter": 6, "type": "paraphrase", "quote": "Military tactics resemble water." },
+  {
+    "id": 74,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Water avoids heights and moves toward lower ground."
+  },
+  {
+    "id": 75,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "Likewise, avoid strength and move toward weakness."
+  },
+  {
+    "id": 76,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "As water shapes itself to terrain, strategy must shape itself to circumstances."
+  },
+  {
+    "id": 77,
+    "chapter": 6,
+    "type": "paraphrase",
+    "quote": "There are no permanent conditions and no permanently successful method."
+  },
+
+  {
+    "id": 78,
+    "chapter": 7,
+    "type": "paraphrase",
+    "quote": "Turning a difficult route into an advantage is part of maneuvering."
+  },
+  {
+    "id": 79,
+    "chapter": 7,
+    "type": "paraphrase",
+    "quote": "An organized force can maneuver; an undisciplined crowd cannot."
+  },
+  {
+    "id": 80,
+    "chapter": 7,
+    "type": "paraphrase",
+    "quote": "Do not take the bait an opponent deliberately offers."
+  },
+  {
+    "id": 81,
+    "chapter": 7,
+    "type": "paraphrase",
+    "quote": "Do not interfere with a force returning home without considering its motivation."
+  },
+  {
+    "id": 82,
+    "chapter": 7,
+    "type": "paraphrase",
+    "quote": "Leave an apparent escape route rather than creating needless desperation."
+  },
+  {
+    "id": 83,
+    "chapter": 7,
+    "type": "paraphrase",
+    "quote": "Do not press a desperate opponent without thought."
+  },
+
+  { "id": 84, "chapter": 8, "type": "paraphrase", "quote": "Some roads should not be followed." },
+  {
+    "id": 85,
+    "chapter": 8,
+    "type": "paraphrase",
+    "quote": "Some forces should not be challenged."
+  },
+  {
+    "id": 86,
+    "chapter": 8,
+    "type": "paraphrase",
+    "quote": "Some positions are not worth contesting."
+  },
+  {
+    "id": 87,
+    "chapter": 8,
+    "type": "paraphrase",
+    "quote": "A leader must understand how circumstances change the correct strategy."
+  },
+  {
+    "id": 88,
+    "chapter": 8,
+    "type": "paraphrase",
+    "quote": "In favorable conditions, consider what could go wrong."
+  },
+  {
+    "id": 89,
+    "chapter": 8,
+    "type": "paraphrase",
+    "quote": "In difficult conditions, look for what can be gained."
+  },
+
+  {
+    "id": 90,
+    "chapter": 9,
+    "type": "paraphrase",
+    "quote": "Observe carefully; small signs can reveal larger intentions."
+  },
+  {
+    "id": 91,
+    "chapter": 9,
+    "type": "paraphrase",
+    "quote": "Movement among trees can reveal an approaching force."
+  },
+  {
+    "id": 92,
+    "chapter": 9,
+    "type": "paraphrase",
+    "quote": "Dust and movement can reveal what is happening at a distance."
+  },
+  {
+    "id": 93,
+    "chapter": 9,
+    "type": "paraphrase",
+    "quote": "Order and discipline strengthen confidence."
+  },
+
+  {
+    "id": 94,
+    "chapter": 10,
+    "type": "paraphrase",
+    "quote": "Understand terrain and use it appropriately."
+  },
+  {
+    "id": 95,
+    "chapter": 10,
+    "type": "paraphrase",
+    "quote": "Know the terrain, the conditions, yourself, and the opposition."
+  },
+
+  {
+    "id": 96,
+    "chapter": 11,
+    "type": "paraphrase",
+    "quote": "Different situations require different responses."
+  },
+  {
+    "id": 97,
+    "chapter": 11,
+    "type": "paraphrase",
+    "quote": "Speed is essential when exploiting an opportunity."
+  },
+
+  {
+    "id": 98,
+    "chapter": 12,
+    "type": "paraphrase",
+    "quote": "Move only when there is an advantage to be gained."
+  },
+  {
+    "id": 99,
+    "chapter": 12,
+    "type": "paraphrase",
+    "quote": "Do not act merely from anger; circumstances and emotions change."
+  },
+
+  {
+    "id": 100,
+    "chapter": 13,
+    "type": "paraphrase",
+    "quote": "Knowledge of the opponent's situation should come from reliable intelligence."
+  }
+]

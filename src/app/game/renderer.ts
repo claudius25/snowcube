@@ -17,6 +17,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   OrthographicCamera,
   PCFShadowMap,
   Quaternion,
@@ -27,6 +28,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { colorHex, SNOW } from './colors';
 import {
   Cell,
@@ -69,6 +71,25 @@ const SCENE_BOTTOM = -0.78;
 const SCENE_TOP = TILE;
 
 export type ScreenKey = 'up' | 'right' | 'down' | 'left';
+
+/** 'box' is the original procedural cube; 'frame' is the authored GLB. */
+export type CubeStyle = 'box' | 'frame';
+
+const CUBE_MODEL_URL = 'snowcube/snowcube.glb';
+/** The authored model spans 2 units; the board works in TILE-sized cubes. */
+const CUBE_MODEL_SIZE = 2;
+
+/** Maps a panel's offset from the cube centre onto a BoxGeometry material slot. */
+function slotForOffset(offset: Vector3): number {
+  const ax = Math.abs(offset.x);
+  const ay = Math.abs(offset.y);
+  const az = Math.abs(offset.z);
+  const max = Math.max(ax, ay, az);
+  if (max < 0.5) return -1;
+  if (max === ax) return offset.x > 0 ? 0 : 1;
+  if (max === ay) return offset.y > 0 ? 2 : 3;
+  return offset.z > 0 ? 4 : 5;
+}
 
 interface TileView {
   readonly mesh: Mesh;
@@ -133,6 +154,8 @@ function clamp(v: number, min: number, max: number): number {
 /** Owns the three.js scene; reads state from the engine, never changes it. */
 export class GameRenderer {
   onTileSelect?: (cell: Cell) => void;
+  /** Fires once the GLB resolves; false means it failed and the box stays in use. */
+  onCubeModel?: (loaded: boolean) => void;
 
   private readonly scene = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
@@ -145,8 +168,12 @@ export class GameRenderer {
   private keyLight!: DirectionalLight;
   private tiles: TileView[] = [];
   private tileMeshes: Mesh[] = [];
+  private cubeRoot = new Group();
   private cube!: Mesh;
   private cubeMaterials: MeshStandardMaterial[] = [];
+  private cubeStyle: CubeStyle = 'box';
+  private cubeModel?: Group;
+  private modelRequested = false;
   private cubeAtlas?: Texture;
   private tileAtlas?: Texture;
   private tileGeometry?: BufferGeometry;
@@ -217,6 +244,7 @@ export class GameRenderer {
     this.cubeAtlas?.dispose();
     this.tileAtlas?.dispose();
     this.beamTexture?.dispose();
+    this.disposeModel();
     this.renderer?.dispose();
   }
 
@@ -231,6 +259,82 @@ export class GameRenderer {
   setHints(enabled: boolean): void {
     this.hints = enabled;
     this.refreshHints();
+  }
+
+  /** Swaps the cube's visual. The original box stays built and is only hidden. */
+  setCubeStyle(style: CubeStyle): void {
+    this.cubeStyle = style;
+    if (style === 'frame' && !this.cubeModel) this.loadCubeModel();
+    this.applyCubeStyle();
+  }
+
+  private applyCubeStyle(): void {
+    const useModel = this.cubeStyle === 'frame' && !!this.cubeModel;
+    this.cube.visible = !useModel;
+    if (this.cubeModel) this.cubeModel.visible = useModel;
+  }
+
+  private attachModel(): void {
+    if (this.cubeModel) this.cubeRoot.add(this.cubeModel);
+    this.applyCubeStyle();
+  }
+
+  private disposeModel(): void {
+    this.cubeModel?.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      child.geometry.dispose();
+      for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+        material.dispose();
+      }
+    });
+    this.cubeModel = undefined;
+  }
+
+  private loadCubeModel(): void {
+    if (this.modelRequested) return;
+    this.modelRequested = true;
+
+    new GLTFLoader().load(
+      CUBE_MODEL_URL,
+      (gltf) => {
+        const model = gltf.scene;
+        model.scale.setScalar(TILE / CUBE_MODEL_SIZE);
+        this.repaintModel(model);
+        model.traverse((child) => {
+          if (child instanceof Mesh) child.castShadow = true;
+        });
+        this.cubeModel = model;
+        this.cubeRoot.add(model);
+        this.applyCubeStyle();
+        this.onCubeModel?.(true);
+      },
+      undefined,
+      () => {
+        this.modelRequested = false;
+        this.onCubeModel?.(false);
+      },
+    );
+  }
+
+  /**
+   * Repaints each panel from the engine's palette. The authored colours are close
+   * but not in the rules' order, and a mismatch would show one colour while
+   * scoring another, so the panel's own base map is dropped.
+   */
+  private repaintModel(model: Object3D): void {
+    const centre = new Vector3();
+    model.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      child.geometry.computeBoundingBox();
+      child.geometry.boundingBox?.getCenter(centre);
+      const slot = slotForOffset(centre);
+      if (slot < 0) return;
+
+      const material = child.material as MeshStandardMaterial;
+      material.map = null;
+      material.color.setHex(colorHex(FACE_COLORS[slot]));
+      material.needsUpdate = true;
+    });
   }
 
   resetCamera(): void {
@@ -258,7 +362,7 @@ export class GameRenderer {
       axis: new Vector3().crossVectors(UP, v).normalize(),
       pivot,
       offset: from.clone().sub(pivot),
-      start: this.cube.quaternion.clone(),
+      start: this.cubeRoot.quaternion.clone(),
       outcome,
       done,
       t: 0,
@@ -360,7 +464,10 @@ export class GameRenderer {
     this.cube.add(new LineSegments(edgeGeometry, edgeMaterial));
     this.disposables.push(edgeGeometry, edgeMaterial);
 
-    this.board.add(this.cube);
+    this.cubeRoot = new Group();
+    this.cubeRoot.add(this.cube);
+    this.board.add(this.cubeRoot);
+    this.attachModel();
 
     this.buildBeams();
 
@@ -489,10 +596,10 @@ export class GameRenderer {
   }
 
   private syncCube(): void {
-    this.cube.position
+    this.cubeRoot.position
       .copy(this.worldPosition(this.engine.cube.x, this.engine.cube.z))
       .setY(TILE / 2);
-    this.cube.quaternion.copy(this.engine.rotation);
+    this.cubeRoot.quaternion.copy(this.engine.rotation);
   }
 
   private syncTiles(instant: boolean): void {
@@ -566,8 +673,8 @@ export class GameRenderer {
     roll.t = Math.min(1, roll.t + dt / ROLL_SECONDS);
     const angle = easeInOutQuad(roll.t) * (Math.PI / 2);
     const q = new Quaternion().setFromAxisAngle(roll.axis, angle);
-    this.cube.position.copy(roll.offset).applyQuaternion(q).add(roll.pivot);
-    this.cube.quaternion.copy(roll.start).premultiply(q);
+    this.cubeRoot.position.copy(roll.offset).applyQuaternion(q).add(roll.pivot);
+    this.cubeRoot.quaternion.copy(roll.start).premultiply(q);
 
     if (roll.t < 1) return;
 
@@ -595,7 +702,7 @@ export class GameRenderer {
     bump.t = Math.min(1, bump.t + dt / BUMP_SECONDS);
     const push = Math.sin(bump.t * Math.PI);
     this.syncCube();
-    this.cube.position.addScaledVector(bump.offset, push);
+    this.cubeRoot.position.addScaledVector(bump.offset, push);
 
     if (bump.t >= 1) {
       this.bump = null;
