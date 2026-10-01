@@ -1,10 +1,10 @@
 import {
   ACESFilmicToneMapping,
   AdditiveBlending,
+  Box3,
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
-  Color,
   CylinderGeometry,
   DirectionalLight,
   DoubleSide,
@@ -46,23 +46,22 @@ import {
   cellTexture,
   CUBE_ATLAS,
   loadAtlas,
-  setAtlasCell,
-  TILE_ATLAS,
-  tileAtlasCell,
 } from './textures';
 
 const ROLL_SECONDS = 0.22;
 const BUMP_SECONDS = 0.18;
 const TINT_SECONDS = 0.28;
 const POP_SECONDS = 0.4;
-/** Overbright tint a tile starts from when its atlas cell swaps. */
-const TILE_FLASH = 1.8;
+/** Emissive intensity a tile flashes to when its model is swapped. */
+const TILE_FLASH = 0.85;
 const BEAM_SECONDS = 0.9;
 /** Short enough that the falloff finishes before the ortho frustum clips it. */
 const BEAM_HEIGHT = 4.5;
 /** Enough beams for a streak to overlap without reusing one mid-flight. */
 const BEAM_POOL = 4;
 const DEFAULT_AZIMUTH = Math.PI / 4;
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 2.4;
 /** Fixed camera pitch — the view only orbits horizontally. */
 const ELEVATION = Math.atan(1 / Math.SQRT2); // true isometric
 const ORDER: readonly Direction[] = ['north', 'east', 'south', 'west'];
@@ -72,12 +71,38 @@ const SCENE_TOP = TILE;
 
 export type ScreenKey = 'up' | 'right' | 'down' | 'left';
 
-/** 'box' is the original procedural cube; 'frame' is the authored GLB. */
-export type CubeStyle = 'box' | 'frame';
-
 const CUBE_MODEL_URL = 'snowcube/snowcube.glb';
 /** The authored model spans 2 units; the board works in TILE-sized cubes. */
 const CUBE_MODEL_SIZE = 2;
+
+const TILE_MODEL_BASE = 'snowcube-7-tiles/';
+/** Indices match the colour ids in colors.ts; the last entry is the neutral snow tile. */
+const TILE_MODEL_FILES = [
+  'tile_lava.glb',
+  'tile_boar.glb',
+  'tile_fox.glb',
+  'tile_serpent.glb',
+  'tile_siren.glb',
+  'tile_peacock.glb',
+  'tile_snow.glb',
+];
+const SNOW_MODEL = TILE_MODEL_FILES.length - 1;
+/** Authored footprint is exactly 1x1; shrink a touch so neighbours keep a visible gap. */
+const TILE_MODEL_SCALE = 0.96;
+
+function tileModelIndex(colorId: number): number {
+  return colorId === NEUTRAL ? SNOW_MODEL : colorId;
+}
+
+function collectMaterials(root: Object3D): MeshStandardMaterial[] {
+  const found: MeshStandardMaterial[] = [];
+  root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const list = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of list) found.push(material as MeshStandardMaterial);
+  });
+  return found;
+}
 
 /** Maps a panel's offset from the cube centre onto a BoxGeometry material slot. */
 function slotForOffset(offset: Vector3): number {
@@ -92,12 +117,15 @@ function slotForOffset(offset: Vector3): number {
 }
 
 interface TileView {
-  readonly mesh: Mesh;
-  readonly material: MeshStandardMaterial;
-  readonly from: Color;
-  readonly to: Color;
-  tint: number;
+  readonly group: Group;
+  /** Flat fallback slab, shown only until the tile models resolve. */
+  readonly pad: Mesh;
+  readonly padMaterial: MeshStandardMaterial;
+  model?: Object3D;
+  materials: MeshStandardMaterial[];
+  colorId: number;
   pop: number;
+  flash: number;
   hinted: boolean;
 }
 
@@ -154,8 +182,6 @@ function clamp(v: number, min: number, max: number): number {
 /** Owns the three.js scene; reads state from the engine, never changes it. */
 export class GameRenderer {
   onTileSelect?: (cell: Cell) => void;
-  /** Fires once the GLB resolves; false means it failed and the box stays in use. */
-  onCubeModel?: (loaded: boolean) => void;
 
   private readonly scene = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
@@ -166,16 +192,19 @@ export class GameRenderer {
 
   private renderer!: WebGLRenderer;
   private keyLight!: DirectionalLight;
+  private fillLight!: DirectionalLight;
+  /** Light placements at the default azimuth; both orbit with the camera. */
+  private readonly keyLightHome = new Vector3(6, 14, -7);
+  private readonly fillLightHome = new Vector3(-5, 6, 9);
   private tiles: TileView[] = [];
-  private tileMeshes: Mesh[] = [];
+  private tileGroups: Group[] = [];
+  private tileModels: (Object3D | undefined)[] = [];
   private cubeRoot = new Group();
   private cube!: Mesh;
   private cubeMaterials: MeshStandardMaterial[] = [];
-  private cubeStyle: CubeStyle = 'box';
   private cubeModel?: Group;
   private modelRequested = false;
   private cubeAtlas?: Texture;
-  private tileAtlas?: Texture;
   private tileGeometry?: BufferGeometry;
   private disposables: (BufferGeometry | Material)[] = [];
 
@@ -194,6 +223,9 @@ export class GameRenderer {
   private dragging = false;
   private dragged = false;
   private lastPointer = new Vector2();
+  private readonly pointers = new Map<number, Vector2>();
+  private pinchGap = 0;
+  private aspect = 1;
   private resizeObserver?: ResizeObserver;
 
   constructor(
@@ -216,6 +248,8 @@ export class GameRenderer {
     this.addLights();
     this.build();
     this.loadTextures();
+    this.loadCubeModel();
+    this.loadTileModels();
 
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
@@ -242,7 +276,6 @@ export class GameRenderer {
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.clearBoard();
     this.cubeAtlas?.dispose();
-    this.tileAtlas?.dispose();
     this.beamTexture?.dispose();
     this.disposeModel();
     this.renderer?.dispose();
@@ -261,22 +294,15 @@ export class GameRenderer {
     this.refreshHints();
   }
 
-  /** Swaps the cube's visual. The original box stays built and is only hidden. */
-  setCubeStyle(style: CubeStyle): void {
-    this.cubeStyle = style;
-    if (style === 'frame' && !this.cubeModel) this.loadCubeModel();
-    this.applyCubeStyle();
-  }
-
-  private applyCubeStyle(): void {
-    const useModel = this.cubeStyle === 'frame' && !!this.cubeModel;
-    this.cube.visible = !useModel;
-    if (this.cubeModel) this.cubeModel.visible = useModel;
+  /** Swaps in the authored cube once it resolves; the box is the fallback until then. */
+  private applyCubeVisual(): void {
+    this.cube.visible = !this.cubeModel;
+    if (this.cubeModel) this.cubeModel.visible = true;
   }
 
   private attachModel(): void {
     if (this.cubeModel) this.cubeRoot.add(this.cubeModel);
-    this.applyCubeStyle();
+    this.applyCubeVisual();
   }
 
   private disposeModel(): void {
@@ -305,13 +331,11 @@ export class GameRenderer {
         });
         this.cubeModel = model;
         this.cubeRoot.add(model);
-        this.applyCubeStyle();
-        this.onCubeModel?.(true);
+        this.applyCubeVisual();
       },
       undefined,
       () => {
         this.modelRequested = false;
-        this.onCubeModel?.(false);
       },
     );
   }
@@ -380,7 +404,7 @@ export class GameRenderer {
 
     // Lit from behind-right so the cast shadow falls towards the camera.
     const key = new DirectionalLight(0xffffff, 1.9);
-    key.position.set(6, 14, -7);
+    key.position.copy(this.keyLightHome);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.radius = 2.5;
@@ -390,8 +414,9 @@ export class GameRenderer {
     this.keyLight = key;
 
     const fill = new DirectionalLight(0x9fc4ff, 0.55);
-    fill.position.set(-5, 6, 9);
+    fill.position.copy(this.fillLightHome);
     this.scene.add(fill);
+    this.fillLight = fill;
   }
 
   private build(): void {
@@ -410,21 +435,27 @@ export class GameRenderer {
           emissive: 0x000000,
           emissiveIntensity: 0,
         });
-        const mesh = new Mesh(geometry, material);
-        mesh.position.copy(this.worldPosition(x, z)).setY(-0.11);
-        mesh.receiveShadow = true;
-        mesh.userData['index'] = this.engine.index(x, z);
-        this.board.add(mesh);
+        const pad = new Mesh(geometry, material);
+        pad.position.setY(-0.11);
+        pad.receiveShadow = true;
+
+        const group = new Group();
+        group.position.copy(this.worldPosition(x, z));
+        group.userData['index'] = this.engine.index(x, z);
+        group.add(pad);
+        this.board.add(group);
+
         this.tiles.push({
-          mesh,
-          material,
-          from: new Color(SNOW.hex),
-          to: new Color(SNOW.hex),
-          tint: 1,
+          group,
+          pad,
+          padMaterial: material,
+          materials: [],
+          colorId: Number.NaN,
           pop: 0,
+          flash: 0,
           hinted: false,
         });
-        this.tileMeshes.push(mesh);
+        this.tileGroups.push(group);
       }
     }
 
@@ -492,31 +523,17 @@ export class GameRenderer {
       this.cubeAtlas = texture;
       this.applyAtlases();
     });
-    loadAtlas(TILE_ATLAS, anisotropy, (texture) => {
-      this.tileAtlas = texture;
-      this.applyAtlases();
-    });
   }
 
-  /** Hands every material its own view onto the shared atlas image. */
+  /** Hands every cube material its own view onto the shared atlas image. */
   private applyAtlases(): void {
-    if (this.cubeAtlas) {
-      this.cubeMaterials.forEach((material, slot) => {
-        material.map = cellTexture(this.cubeAtlas!, CUBE_ATLAS, slot);
-        // The cube atlas is already in colour; the flat tint is only a no-texture fallback.
-        material.color.setHex(0xffffff);
-        material.needsUpdate = true;
-      });
-    }
-    if (this.tileAtlas) {
-      for (let i = 0; i < this.tiles.length; i++) {
-        const cell = tileAtlasCell(this.engine.tiles[i]);
-        this.tiles[i].material.map = cellTexture(this.tileAtlas, TILE_ATLAS, cell);
-        this.tiles[i].material.needsUpdate = true;
-      }
-      // Re-apply tints now that the hue comes from the atlas instead of the material.
-      this.syncTiles(true);
-    }
+    if (!this.cubeAtlas) return;
+    this.cubeMaterials.forEach((material, slot) => {
+      material.map = cellTexture(this.cubeAtlas!, CUBE_ATLAS, slot);
+      // The cube atlas is already in colour; the flat tint is only a no-texture fallback.
+      material.color.setHex(0xffffff);
+      material.needsUpdate = true;
+    });
   }
 
   /** Pool of reusable light columns, one fired per neutralised tile. */
@@ -577,11 +594,12 @@ export class GameRenderer {
 
   private clearBoard(): void {
     for (const tile of this.tiles) {
-      this.board.remove(tile.mesh);
-      tile.material.dispose();
+      this.board.remove(tile.group);
+      tile.padMaterial.dispose();
+      for (const material of tile.materials) material.dispose();
     }
     this.tiles = [];
-    this.tileMeshes = [];
+    this.tileGroups = [];
     this.beams = [];
     this.tileGeometry?.dispose();
     this.tileGeometry = undefined;
@@ -602,54 +620,105 @@ export class GameRenderer {
     this.cubeRoot.quaternion.copy(this.engine.rotation);
   }
 
+  private loadTileModels(): void {
+    const loader = new GLTFLoader();
+    let pending = TILE_MODEL_FILES.length;
+
+    const settle = () => {
+      if (--pending > 0) return;
+      // Re-run the colour pass so every cell picks up its model.
+      if (this.tileModels.some(Boolean)) this.syncTiles(true);
+    };
+
+    TILE_MODEL_FILES.forEach((file, index) => {
+      loader.load(
+        TILE_MODEL_BASE + file,
+        (gltf) => {
+          this.tileModels[index] = this.prepareTileModel(gltf.scene);
+          settle();
+        },
+        undefined,
+        settle,
+      );
+    });
+  }
+
+  /** Scales to the board pitch and drops the model so its top sits on the play surface. */
+  private prepareTileModel(model: Object3D): Object3D {
+    model.scale.setScalar(TILE_MODEL_SCALE);
+    model.updateMatrixWorld(true);
+    model.position.y = -new Box3().setFromObject(model).max.y;
+    model.traverse((child) => {
+      if (child instanceof Mesh) child.receiveShadow = true;
+    });
+    return model;
+  }
+
+  /** Clones a prototype with its own materials, so hints stay local to one tile. */
+  private instantiateTile(colorId: number): Object3D | undefined {
+    const prototype = this.tileModels[tileModelIndex(colorId)];
+    if (!prototype) return undefined;
+
+    const clone = prototype.clone(true);
+    clone.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      child.material = Array.isArray(child.material)
+        ? child.material.map((material) => material.clone())
+        : child.material.clone();
+    });
+    return clone;
+  }
+
+  private setTileEmissive(tile: TileView, hex: number, intensity: number): void {
+    for (const material of tile.materials) {
+      material.emissive.setHex(hex);
+      material.emissiveIntensity = intensity;
+    }
+    tile.padMaterial.emissive.setHex(hex);
+    tile.padMaterial.emissiveIntensity = intensity;
+  }
+
   private syncTiles(instant: boolean): void {
     for (let i = 0; i < this.tiles.length; i++) {
       this.setTileColor(i, this.engine.tiles[i], instant, false);
     }
   }
 
-  /** With a colour atlas the hue lives in the texture, so the tint only flashes. */
-  private tileTint(colorId: number): number {
-    if (this.tileAtlas) return 0xffffff;
-    return colorId === NEUTRAL ? SNOW.hex : colorHex(colorId);
-  }
-
   private setTileColor(index: number, colorId: number, instant: boolean, pop: boolean): void {
     const tile = this.tiles[index];
-    const hex = this.tileTint(colorId);
+    const changed = tile.colorId !== colorId;
+    tile.colorId = colorId;
+    tile.padMaterial.color.setHex(colorId === NEUTRAL ? SNOW.hex : colorHex(colorId));
 
-    if (instant) {
-      tile.tint = 1;
-      tile.material.color.setHex(hex);
-    } else {
-      // The atlas cell swaps in one frame, so the change reads as a flash, not a cross-fade.
-      if (this.tileAtlas) tile.from.setScalar(TILE_FLASH);
-      else tile.from.copy(tile.material.color);
-      tile.material.color.copy(tile.from);
-      tile.tint = 0;
+    if (changed || !tile.model) {
+      const next = this.instantiateTile(colorId);
+      if (next) {
+        if (tile.model) {
+          tile.group.remove(tile.model);
+          for (const material of tile.materials) material.dispose();
+        }
+        tile.model = next;
+        tile.materials = collectMaterials(next);
+        tile.group.add(next);
+      }
+      tile.pad.visible = !tile.model;
     }
 
-    tile.to.setHex(hex);
+    tile.flash = instant || !changed ? 0 : 1;
     if (pop) tile.pop = 1;
-    if (tile.material.map) {
-      setAtlasCell(tile.material.map, TILE_ATLAS, tileAtlasCell(colorId));
-    }
   }
 
   private refreshHints(): void {
     for (const tile of this.tiles) {
       tile.hinted = false;
-      tile.material.emissiveIntensity = 0;
-      tile.material.emissive.setHex(0x000000);
+      if (tile.flash <= 0) this.setTileEmissive(tile, 0x000000, 0);
     }
     if (!this.hints) return;
 
     for (const direction of DIRECTIONS) {
       const preview = this.engine.preview(direction);
       if (!preview.matches) continue;
-      const tile = this.tiles[this.engine.index(preview.cell.x, preview.cell.z)];
-      tile.hinted = true;
-      tile.material.emissive.setHex(colorHex(preview.tileColor));
+      this.tiles[this.engine.index(preview.cell.x, preview.cell.z)].hinted = true;
     }
   }
 
@@ -713,17 +782,17 @@ export class GameRenderer {
   private updateTiles(dt: number): void {
     const pulse = 0.22 + 0.2 * (0.5 + 0.5 * Math.sin(this.elapsed * 5.5));
     for (const tile of this.tiles) {
-      if (tile.tint < 1) {
-        tile.tint = Math.min(1, tile.tint + dt / TINT_SECONDS);
-        tile.material.color.lerpColors(tile.from, tile.to, easeInOutQuad(tile.tint));
-      }
       if (tile.pop > 0) {
         tile.pop = Math.max(0, tile.pop - dt / POP_SECONDS);
         const lift = Math.sin(tile.pop * Math.PI);
-        tile.mesh.scale.set(1 + lift * 0.1, 1 + lift * 1.1, 1 + lift * 0.1);
+        tile.group.position.y = lift * 0.14;
+        tile.group.scale.set(1 + lift * 0.05, 1, 1 + lift * 0.05);
       }
-      if (tile.hinted) {
-        tile.material.emissiveIntensity = pulse;
+      if (tile.flash > 0) {
+        tile.flash = Math.max(0, tile.flash - dt / TINT_SECONDS);
+        this.setTileEmissive(tile, 0xffffff, tile.flash * TILE_FLASH);
+      } else if (tile.hinted) {
+        this.setTileEmissive(tile, colorHex(tile.colorId), pulse);
       }
     }
   }
@@ -735,8 +804,12 @@ export class GameRenderer {
 
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(width, height, false);
+    this.aspect = width / height;
+    this.updateProjection();
+  }
 
-    const aspect = width / height;
+  private updateProjection(): void {
+    const aspect = this.aspect;
     // Half the board's diagonal, which is its widest span on screen in isometric.
     const reach = ((this.engine.size * TILE) / 2) * Math.SQRT2;
     const needHalfWidth = reach;
@@ -763,19 +836,57 @@ export class GameRenderer {
     );
     this.camera.position.multiplyScalar(radius).add(this.target);
     this.camera.lookAt(this.target);
+
+    // Spin the rig with the view so the lit faces and shadow direction never change.
+    const spin = this.azimuth - DEFAULT_AZIMUTH;
+    this.keyLight.position.copy(this.keyLightHome).applyAxisAngle(UP, spin);
+    this.fillLight.position.copy(this.fillLightHome).applyAxisAngle(UP, spin);
+  }
+
+  /** Screen distance between the first two active pointers. */
+  private pointerSpread(): number {
+    const [a, b] = [...this.pointers.values()];
+    return a && b ? a.distanceTo(b) : 0;
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {
-    this.dragging = true;
-    this.dragged = false;
-    this.lastPointer.set(event.clientX, event.clientY);
-    this.canvas.setPointerCapture(event.pointerId);
+    try {
+      this.canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // A cancel can race the down event; capture is an optimisation, not a requirement.
+    }
+    this.pointers.set(event.pointerId, new Vector2(event.clientX, event.clientY));
+
+    if (this.pointers.size === 1) {
+      this.dragging = true;
+      this.dragged = false;
+      this.lastPointer.set(event.clientX, event.clientY);
+    } else if (this.pointers.size === 2) {
+      this.pinchGap = this.pointerSpread();
+      // A two-finger gesture is never a tap.
+      this.dragged = true;
+    }
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
-    if (!this.dragging) return;
+    const tracked = this.pointers.get(event.pointerId);
+    if (!tracked) return;
+
     const dx = event.clientX - this.lastPointer.x;
     const dy = event.clientY - this.lastPointer.y;
+    tracked.set(event.clientX, event.clientY);
+
+    if (this.pointers.size >= 2) {
+      const gap = this.pointerSpread();
+      if (this.pinchGap > 0 && gap > 0) {
+        this.zoom = clamp(this.zoom * (gap / this.pinchGap), MIN_ZOOM, MAX_ZOOM);
+        this.updateProjection();
+      }
+      this.pinchGap = gap;
+      return;
+    }
+
+    if (!this.dragging) return;
     if (Math.abs(dx) + Math.abs(dy) > 3) this.dragged = true;
     this.lastPointer.set(event.clientX, event.clientY);
 
@@ -784,11 +895,22 @@ export class GameRenderer {
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
-    if (!this.dragging) return;
-    this.dragging = false;
+    if (!this.pointers.delete(event.pointerId)) return;
     if (this.canvas.hasPointerCapture(event.pointerId)) {
       this.canvas.releasePointerCapture(event.pointerId);
     }
+
+    if (this.pointers.size === 1) {
+      // Pinch ended but a finger remains: hand it back to rotation cleanly.
+      this.lastPointer.copy([...this.pointers.values()][0]);
+      this.pinchGap = 0;
+      return;
+    }
+    if (this.pointers.size > 0) return;
+
+    this.pinchGap = 0;
+    if (!this.dragging) return;
+    this.dragging = false;
     if (this.dragged || !this.onTileSelect) return;
 
     const rect = this.canvas.getBoundingClientRect();
@@ -797,16 +919,20 @@ export class GameRenderer {
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObjects(this.tileMeshes, false)[0];
+    const hit = this.raycaster.intersectObjects(this.tileGroups, true)[0];
     if (!hit) return;
 
-    const index = hit.object.userData['index'] as number;
+    let node: Object3D | null = hit.object;
+    while (node && node.userData['index'] === undefined) node = node.parent;
+    if (!node) return;
+
+    const index = node.userData['index'] as number;
     this.onTileSelect({ x: index % this.engine.size, z: Math.floor(index / this.engine.size) });
   };
 
   private readonly onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    this.zoom = clamp(this.zoom * (1 - event.deltaY * 0.0012), 0.6, 2.4);
-    this.resize();
+    this.zoom = clamp(this.zoom * (1 - event.deltaY * 0.0012), MIN_ZOOM, MAX_ZOOM);
+    this.updateProjection();
   };
 }

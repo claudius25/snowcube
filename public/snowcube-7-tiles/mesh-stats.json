@@ -1,0 +1,30 @@
+{
+  "fox": {
+    "parts": 6,
+    "triangles": 1956
+  },
+  "peacock": {
+    "parts": 5,
+    "triangles": 2968
+  },
+  "boar": {
+    "parts": 9,
+    "triangles": 3792
+  },
+  "lava": {
+    "parts": 4,
+    "triangles": 2396
+  },
+  "siren": {
+    "parts": 5,
+    "triangles": 3712
+  },
+  "serpent": {
+    "parts": 4,
+    "triangles": 2720
+  },
+  "snow": {
+    "parts": 2,
+    "triangles": 952
+  }
+}

@@ -73,7 +73,7 @@ export interface GameOptions {
   seedTiles: number;
 }
 
-export const DEFAULT_OPTIONS: GameOptions = { size: 8, spawnInterval: 2, seedTiles: 3 };
+export const DEFAULT_OPTIONS: GameOptions = { size: 7, spawnInterval: 2, seedTiles: 3 };
 
 /**
  * Pure game state: the board, the cube's cell and its orientation.

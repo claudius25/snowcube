@@ -1,5 +1,4 @@
 import { ClampToEdgeWrapping, SRGBColorSpace, Texture, TextureLoader } from 'three';
-import { NEUTRAL } from './engine';
 
 export interface AtlasLayout {
   readonly url: string;
@@ -20,26 +19,10 @@ export interface AtlasLayout {
 export const CUBE_ATLAS: AtlasLayout = { url: 'textures/cube-atlas.png', columns: 3, rows: 2 };
 
 /**
- * Full-colour atlas for the tiles. 3072x3072, 3x3 cells of 1024px.
- * Cells 0-5 match the colour ids in colors.ts, cell 6 is the neutral snow tile
- * and cells 7-8 are spare.
- *
- * Each cell is only ever shown for its own colour, so like the cube atlas it
- * carries the hue itself and the renderer drops the material tint to white.
- */
-export const TILE_ATLAS: AtlasLayout = { url: 'textures/tile-atlas.png', columns: 3, rows: 3 };
-
-const SNOW_CELL = 6;
-
-export function tileAtlasCell(colorId: number): number {
-  return colorId === NEUTRAL ? SNOW_CELL : colorId;
-}
-
-/**
  * Points `texture` at one atlas cell, inset by half a texel so mip sampling
  * cannot bleed in the neighbouring cell.
  */
-export function setAtlasCell(texture: Texture, layout: AtlasLayout, cell: number): void {
+function setAtlasCell(texture: Texture, layout: AtlasLayout, cell: number): void {
   const image = texture.image as { width?: number; height?: number } | undefined;
   const padX = image?.width ? 0.5 / image.width : 0;
   const padY = image?.height ? 0.5 / image.height : 0;
