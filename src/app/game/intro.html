@@ -2,7 +2,7 @@
   <div class="stage">
     <canvas #canvas></canvas>
 
-    <div class="hand" #hand [class.on]="handVisible()">
+    <div class="hand" #hand [class.on]="gesture() !== null" [class.drag]="gesture() === 'drag'">
       <span class="hand__ring"></span>
       <svg
         class="hand__icon"
@@ -37,6 +37,9 @@
     </div>
     <h2>{{ step().title }}</h2>
     <p>{{ step().caption }}</p>
+    @if (step().hint) {
+      <p class="script__hint">{{ step().hint }}</p>
+    }
     <button type="button" [class.primary]="finished()" (click)="finish()">
       {{ finished() ? 'Play' : 'Skip intro' }}
     </button>

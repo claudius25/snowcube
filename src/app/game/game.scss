@@ -4,14 +4,14 @@
 }
 
 .game {
-  display: grid;
-  grid-template-columns: 1fr 320px;
+  display: block;
   height: 100%;
   min-height: 0;
 }
 
 .stage {
   position: relative;
+  height: 100%;
   min-width: 0;
   min-height: 0;
 
@@ -79,50 +79,19 @@
   }
 }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 20px;
-  overflow-y: auto;
-  background: #0d1424;
-  border-left: 1px solid rgba(255, 255, 255, 0.07);
-
-  h2 {
-    margin: 0 0 10px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #7f8ea8;
-  }
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-
-  &__mark {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    transform: rotate(45deg);
-    background: linear-gradient(135deg, #3d8bfd, #9b5de5);
-    box-shadow: 0 6px 18px rgba(61, 139, 253, 0.35);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 19px;
-    letter-spacing: 0.02em;
-  }
-
-  p {
-    margin: 2px 0 0;
-    font-size: 12px;
-    color: #7f8ea8;
-  }
+.hud {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100% - 32px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(13, 20, 36, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(8px);
+  // The board is dragged to rotate; the HUD must not swallow those pointers.
+  pointer-events: none;
 }
 
 .stats {
@@ -152,7 +121,9 @@
   }
 }
 
-.pressure {
+.timeline {
+  margin-top: 12px;
+
   &__head {
     display: flex;
     justify-content: space-between;
@@ -161,55 +132,39 @@
     margin-bottom: 6px;
   }
 
+  // Newest turn sits at the right edge; older ones overflow and fade out to the left.
   &__track {
-    height: 6px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: 20px;
     overflow: hidden;
-  }
-
-  &__fill {
-    height: 100%;
-    border-radius: 999px;
-    background: linear-gradient(90deg, #35c07a, #f5912b 60%, #e6394a);
-    transition: width 0.3s ease;
+    mask-image: linear-gradient(90deg, transparent 0, #000 22%);
   }
 }
 
-.field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+.turn {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-sizing: content-box;
+  animation: turn-in 0.32s ease;
 
-  > span {
-    font-size: 12px;
-    color: #93a3bd;
+  &--matched {
+    border-color: #ffffff;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
   }
 }
 
-.segmented {
-  display: flex;
-  padding: 2px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-
-  button {
-    padding: 5px 8px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: #93a3bd;
-    font: inherit;
-    font-size: 11px;
-    white-space: nowrap;
-    cursor: pointer;
-
-    &.on {
-      background: rgba(61, 139, 253, 0.22);
-      color: #e8eefb;
-    }
+@keyframes turn-in {
+  from {
+    width: 0;
+    margin-left: 0;
+    border-width: 0;
+    opacity: 0;
   }
 }
 
@@ -230,13 +185,12 @@ button.primary {
 }
 
 @media (max-width: 900px) {
-  .game {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(300px, 1fr) auto;
+  .hud {
+    top: 10px;
+    padding: 10px;
   }
 
-  .panel {
-    border-left: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  .stat strong {
+    font-size: 16px;
   }
 }

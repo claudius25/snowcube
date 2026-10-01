@@ -140,6 +140,14 @@ interface BumpState {
   t: number;
 }
 
+interface SpinState {
+  readonly from: number;
+  readonly delta: number;
+  readonly seconds: number;
+  readonly done: () => void;
+  t: number;
+}
+
 interface BeamView {
   readonly mesh: Mesh;
   readonly material: MeshBasicMaterial;
@@ -210,6 +218,7 @@ export class GameRenderer {
 
   private roll: RollState | null = null;
   private bump: BumpState | null = null;
+  private spin: SpinState | null = null;
   private beams: BeamView[] = [];
   private beamTexture?: CanvasTexture;
 
@@ -268,6 +277,7 @@ export class GameRenderer {
 
   dispose(): void {
     cancelAnimationFrame(this.frameId);
+    this.endSpin();
     this.resizeObserver?.disconnect();
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
@@ -412,6 +422,19 @@ export class GameRenderer {
   playBump(direction: Direction): void {
     if (this.busy) return;
     this.bump = { offset: DIRECTION_VECTORS[direction].clone().multiplyScalar(0.16), t: 0 };
+  }
+
+  /** Scripted camera orbit; a real drag cuts it short. */
+  playSpin(delta: number, seconds: number, done: () => void): void {
+    this.endSpin();
+    this.spin = { from: this.azimuth, delta, seconds, done, t: 0 };
+  }
+
+  private endSpin(): void {
+    const spin = this.spin;
+    if (!spin) return;
+    this.spin = null;
+    spin.done();
   }
 
   private addLights(): void {
@@ -745,6 +768,7 @@ export class GameRenderer {
 
     this.updateRoll(dt);
     this.updateBump(dt);
+    this.updateSpin(dt);
     this.updateTiles(dt);
     this.updateBeams(dt);
     this.renderer.render(this.scene, this.camera);
@@ -792,6 +816,17 @@ export class GameRenderer {
       this.bump = null;
       this.syncCube();
     }
+  }
+
+  private updateSpin(dt: number): void {
+    const spin = this.spin;
+    if (!spin) return;
+
+    spin.t = Math.min(1, spin.t + dt / spin.seconds);
+    this.azimuth = spin.from + easeInOutQuad(spin.t) * spin.delta;
+    this.updateCamera();
+
+    if (spin.t >= 1) this.endSpin();
   }
 
   private updateTiles(dt: number): void {
@@ -906,6 +941,7 @@ export class GameRenderer {
     this.lastPointer.set(event.clientX, event.clientY);
 
     if (!this.allowRotate) return;
+    this.endSpin();
     this.azimuth -= dx * 0.006;
     this.updateCamera();
   };

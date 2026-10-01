@@ -1,11 +1,13 @@
 :host {
   display: block;
   height: 100%;
+  overflow: hidden;
 }
 
 .intro {
   display: grid;
-  grid-template-rows: 1fr auto;
+  // The scene keeps the larger share even on short viewports.
+  grid-template-rows: minmax(40%, 1fr) auto;
   height: 100%;
   min-height: 0;
 }
@@ -84,6 +86,15 @@
     border: 2px solid rgba(255, 255, 255, 0.8);
     animation: hand-ring 1.5s ease-out infinite;
   }
+  &.drag {
+    .hand__ring {
+      opacity: 0;
+    }
+
+    .hand__icon {
+      animation: hand-drag 2.2s ease-in-out infinite;
+    }
+  }
 }
 
 @keyframes hand-tap {
@@ -113,27 +124,41 @@
   }
 }
 
+@keyframes hand-drag {
+  0%,
+  100% {
+    transform: translate(-52px, 0) rotate(-8deg);
+  }
+  50% {
+    transform: translate(52px, 0) rotate(8deg);
+  }
+}
+
 .script {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 22px 24px 30px;
+  gap: 8px;
+  padding: 16px 24px 22px;
   text-align: center;
   background: linear-gradient(180deg, rgba(13, 20, 36, 0) 0%, #0d1424 42%);
 
   h2 {
     margin: 0;
-    font-size: 20px;
+    font-size: 19px;
   }
 
   p {
     margin: 0;
-    max-width: 46ch;
-    min-height: 2.8em;
+    max-width: 52ch;
     color: #93a3bd;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.45;
+
+    &.script__hint {
+      color: #6f7f9c;
+      font-size: 13px;
+    }
   }
 
   &__dots {

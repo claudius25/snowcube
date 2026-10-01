@@ -17,6 +17,8 @@ import { GameRenderer } from './renderer';
 const NO_SPAWN = Number.MAX_SAFE_INTEGER;
 /** How long the hand sits on a tile before the cube rolls, unless tapped sooner. */
 const HAND_SECONDS = 1.5;
+/** Demonstrated camera orbit: a quarter turn, slow enough to read. */
+const SPIN_SECONDS = 2.2;
 const INTRO_BOARD = 2;
 const PLAY_BOARD = 3;
 /** Colour swaps demonstrated in the second chapter. */
@@ -25,12 +27,14 @@ const MATCH_DEMOS = 3;
 interface Chapter {
   readonly title: string;
   readonly caption: string;
+  readonly hint?: string;
 }
 
 const CHAPTERS: readonly Chapter[] = [
   {
     title: 'Roll the cube',
     caption: 'Tap a tile right next to the cube and it tips over one square onto it.',
+    hint: 'Drag anywhere on the board to spin the camera around it.',
   },
   {
     title: 'Chase the colours',
@@ -58,7 +62,7 @@ export class Intro implements AfterViewInit, OnDestroy {
 
   readonly chapters = CHAPTERS;
   readonly chapter = signal(0);
-  readonly handVisible = signal(false);
+  readonly gesture = signal<'tap' | 'drag' | null>(null);
   readonly step = computed(() => CHAPTERS[this.chapter()]);
   readonly finished = computed(() => this.chapter() === CHAPTERS.length - 1);
 
@@ -79,7 +83,6 @@ export class Intro implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     const renderer = new GameRenderer(this.canvasRef().nativeElement, this.engine);
     renderer.allowZoom = false;
-    renderer.allowRotate = false;
     renderer.onTileSelect = (cell) => this.onTileSelect(cell);
     renderer.mount();
     this.renderer = renderer;
@@ -105,6 +108,12 @@ export class Intro implements AfterViewInit, OnDestroy {
       await this.wait(250);
       if (this.stopped) return;
     }
+
+    this.gesture.set('drag');
+    await this.orbit();
+    this.gesture.set(null);
+    await this.wait(300);
+    if (this.stopped) return;
 
     this.chapter.set(1);
     this.engine.reset({ size: PLAY_BOARD, seedTiles: 0, spawnInterval: NO_SPAWN });
@@ -132,9 +141,9 @@ export class Intro implements AfterViewInit, OnDestroy {
     if (!preview.legal) return true;
 
     this.target = preview.cell;
-    this.handVisible.set(true);
+    this.gesture.set('tap');
     await this.hint();
-    this.handVisible.set(false);
+    this.gesture.set(null);
     this.target = null;
     if (this.stopped) return false;
 
@@ -176,9 +185,16 @@ export class Intro implements AfterViewInit, OnDestroy {
 
   private readonly trackHand = (): void => {
     this.frameId = requestAnimationFrame(this.trackHand);
-    if (!this.target || !this.renderer) return;
-    const point = this.renderer.projectCell(this.target);
-    this.handRef().nativeElement.style.transform = `translate3d(${point.x}px, ${point.y}px, 0)`;
+    const canvas = this.canvasRef().nativeElement;
+    let x = canvas.clientWidth / 2;
+    let y = canvas.clientHeight * 0.68;
+
+    if (this.target && this.renderer) {
+      const point = this.renderer.projectCell(this.target);
+      x = point.x;
+      y = point.y;
+    }
+    this.handRef().nativeElement.style.transform = `translate3d(${x}px, ${y}px, 0)`;
   };
 
   private hint(): Promise<void> {
@@ -186,6 +202,12 @@ export class Intro implements AfterViewInit, OnDestroy {
       this.tap = resolve;
       this.timeout(resolve, HAND_SECONDS * 1000);
     });
+  }
+
+  private orbit(): Promise<void> {
+    return this.defer((resolve) =>
+      this.renderer?.playSpin(Math.PI / 2, SPIN_SECONDS, resolve),
+    );
   }
 
   private roll(outcome: MoveOutcome): Promise<void> {

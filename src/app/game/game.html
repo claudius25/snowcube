@@ -2,6 +2,39 @@
   <div class="stage">
     <canvas #canvas></canvas>
 
+    <div class="hud">
+      <div class="stats">
+        <div class="stat">
+          <span>Score</span><strong>{{ score() }}</strong>
+        </div>
+        <div class="stat">
+          <span>Best</span><strong>{{ best() }}</strong>
+        </div>
+        <div class="stat">
+          <span>Moves</span><strong>{{ moves() }}</strong>
+        </div>
+        <div class="stat">
+          <span>Streak</span><strong>&times;{{ streak() }}</strong>
+        </div>
+      </div>
+
+      <div class="timeline">
+        <div class="timeline__head">
+          <span>Timeline</span>
+          <span>Turn {{ moves() }}</span>
+        </div>
+        <div class="timeline__track">
+          @for (turn of turns(); track turn.id) {
+            <span
+              class="turn"
+              [class.turn--matched]="turn.matched"
+              [style.background]="turnFill(turn)"
+            ></span>
+          }
+        </div>
+      </div>
+    </div>
+
     @if (gameOver()) {
       <div class="overlay">
         <div class="overlay__card">
@@ -26,53 +59,4 @@
       </div>
     }
   </div>
-
-  <aside class="panel">
-    <header class="brand">
-      <span class="brand__mark"></span>
-      <div>
-        <h1>Snowcube</h1>
-        <p>Roll the colour onto its match.</p>
-      </div>
-    </header>
-
-    <section class="stats">
-      <div class="stat">
-        <span>Score</span><strong>{{ score() }}</strong>
-      </div>
-      <div class="stat">
-        <span>Best</span><strong>{{ best() }}</strong>
-      </div>
-      <div class="stat">
-        <span>Moves</span><strong>{{ moves() }}</strong>
-      </div>
-      <div class="stat">
-        <span>Streak</span><strong>&times;{{ streak() }}</strong>
-      </div>
-    </section>
-
-    <section class="pressure">
-      <div class="pressure__head">
-        <span>Board coverage</span>
-        <span>{{ colored() }} / {{ tileCount() }}</span>
-      </div>
-      <div class="pressure__track">
-        <div class="pressure__fill" [style.width.%]="pressure()"></div>
-      </div>
-    </section>
-
-    <section class="settings">
-      <h2>Setup</h2>
-      <div class="field">
-        <span>Board</span>
-        <div class="segmented">
-          @for (size of boardSizes; track size) {
-            <button type="button" [class.on]="boardSize() === size" (click)="setBoardSize(size)">
-              {{ size }}&times;{{ size }}
-            </button>
-          }
-        </div>
-      </div>
-    </section>
-  </aside>
 </div>
