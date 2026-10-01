@@ -80,11 +80,12 @@
   <body>
     <h1>Snowcube texture atlases</h1>
     <p>
-      The two atlases work differently. <strong>cube-atlas.png is full colour</strong> and defines
-      the cube's appearance outright. <strong>tile-atlas.png is a greyscale detail map</strong>
-      that three.js multiplies by <code>material.color</code>, because tiles recolour at runtime &mdash;
-      keep its pixels light and completely hue-free or you will tint the whole palette. Edit the
-      drawing functions below, reload, and download. Save the files into <code>public/textures/</code>.
+      Both atlases are <strong>full colour</strong> and define their surfaces outright &mdash; the
+      renderer drops <code>material.color</code> to white once they load. Every cell is only ever
+      shown for one palette colour, so keep each cell in its own hue: the rules match on colour, and
+      recolouring a cell desyncs what you see from what scores. Detail, pattern and shading are
+      yours to change. Edit the drawing functions below, reload, and download. Save the files into
+      <code>public/textures/</code>.
     </p>
 
     <section>
@@ -101,13 +102,13 @@
     </section>
 
     <section>
-      <h2>tile-atlas.png &mdash; 1024 &times; 1024, 3 &times; 3 cells</h2>
+      <h2>tile-atlas.png &mdash; 3072 &times; 3072, 3 &times; 3 cells of 1024px</h2>
       <p>
-        <strong>This one stays greyscale.</strong> Tiles change colour at runtime, so the board tint
-        has to come from <code>material.color</code>. Cells 0&ndash;5 are the six palette colours
-        (Ruby, Amber, Citrine, Jade, Azure, Violet), cell 6 is the neutral snow tile, cells
-        7&ndash;8 are spare. Each colour gets its own pattern so a board of mixed tiles reads clearly.
+        Cells 0&ndash;5 are the six palette colours, cell 6 is the neutral snow tile a cleared tile
+        returns to, and cells 7&ndash;8 are spare. Each colour gets its own pattern so a board of
+        mixed tiles still reads clearly when colours sit side by side.
       </p>
+      <ol id="tile-legend" class="legend"></ol>
       <canvas id="tile"></canvas>
       <button data-canvas="tile" data-name="tile-atlas.png">Download tile-atlas.png</button>
     </section>
@@ -123,16 +124,15 @@
         { name: 'Violet', css: '#9b5de5' },
       ];
 
+      // Must mirror SNOW in src/app/game/colors.ts.
+      const SNOW = { name: 'Snow', css: '#eaf1f8' };
+
       // Must mirror FACE_COLORS in src/app/game/engine.ts.
       const FACE_COLORS = [0, 3, 1, 4, 2, 5];
       const SLOT_NAMES = ['+X', '-X', '+Y (top)', '-Y (bottom)', '+Z', '-Z'];
 
       const CUBE_LAYOUT = { width: 3072, height: 2048, columns: 3, rows: 2 };
-      const TILE_LAYOUT = { width: 1024, height: 1024, columns: 3, rows: 3 };
-
-      // Per-pixel noise destroys PNG compression (a few kB becomes ~2 MB). Raise it only
-      // if you are willing to ship the bigger file, or export to JPEG instead.
-      const GRAIN = 0;
+      const TILE_LAYOUT = { width: 3072, height: 3072, columns: 3, rows: 3 };
 
       /* ---------- helpers ---------- */
 
@@ -144,19 +144,6 @@
         ctx.arcTo(x, y + h, x, y, r);
         ctx.arcTo(x, y, x + w, y, r);
         ctx.closePath();
-      }
-
-      function grain(ctx, x, y, s, amount) {
-        if (amount <= 0) return;
-        const image = ctx.getImageData(x, y, s, s);
-        const data = image.data;
-        for (let i = 0; i < data.length; i += 4) {
-          const n = (Math.random() - 0.5) * amount;
-          data[i] = Math.max(0, Math.min(255, data[i] + n));
-          data[i + 1] = data[i];
-          data[i + 2] = data[i];
-        }
-        ctx.putImageData(image, x, y);
       }
 
       /* ---------- cube faces ---------- */
@@ -174,7 +161,14 @@
         ctx.fillRect(0, 0, s, s);
 
         // domed shading, lit towards the upper left and falling off to the rim
-        const dome = ctx.createRadialGradient(s * 0.38, s * 0.34, s * 0.04, s * 0.5, s * 0.5, s * 0.82);
+        const dome = ctx.createRadialGradient(
+          s * 0.38,
+          s * 0.34,
+          s * 0.04,
+          s * 0.5,
+          s * 0.5,
+          s * 0.82,
+        );
         dome.addColorStop(0, 'rgba(255,255,255,0.42)');
         dome.addColorStop(0.55, 'rgba(255,255,255,0.08)');
         dome.addColorStop(1, 'rgba(0,0,0,0.28)');
@@ -268,7 +262,7 @@
           const step = s / n;
           for (let row = 0; row < n; row++) {
             for (let col = 0; col < n; col++) {
-              ctx.fillStyle = (row + col) % 2 ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.45)';
+              ctx.fillStyle = (row + col) % 2 ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.22)';
               roundRect(ctx, col * step + 2, row * step + 2, step - 4, step - 4, step * 0.22);
               ctx.fill();
             }
@@ -331,7 +325,7 @@
         plain() {},
       };
 
-      const TILE_CELLS = [
+      const TILE_PATTERNS = [
         'rings',
         'stripes',
         'dots',
@@ -343,32 +337,46 @@
         'plain',
       ];
 
-      function drawTile(ctx, ox, oy, s, pattern) {
+      // Cells 0-5 are the palette, 6 is snow, 7-8 are spare.
+      const TILE_COLOURS = [...COLORS, SNOW, SNOW, SNOW];
+
+      function drawTile(ctx, ox, oy, s, cell) {
+        const colour = TILE_COLOURS[cell];
         ctx.save();
         ctx.translate(ox, oy);
         ctx.beginPath();
         ctx.rect(0, 0, s, s);
         ctx.clip();
 
-        const base = ctx.createRadialGradient(s * 0.4, s * 0.34, s * 0.08, s * 0.5, s * 0.5, s * 0.8);
-        base.addColorStop(0, '#ffffff');
-        base.addColorStop(0.65, '#f4f4f4');
-        base.addColorStop(1, '#d4d4d4');
-        ctx.fillStyle = base;
+        // flat colour floor, so even the darkest corner stays on-hue
+        ctx.fillStyle = colour.css;
         ctx.fillRect(0, 0, s, s);
 
-        PATTERNS[pattern](ctx, s);
+        const sheen = ctx.createRadialGradient(
+          s * 0.4,
+          s * 0.34,
+          s * 0.08,
+          s * 0.5,
+          s * 0.5,
+          s * 0.82,
+        );
+        sheen.addColorStop(0, 'rgba(255,255,255,0.30)');
+        sheen.addColorStop(0.65, 'rgba(255,255,255,0.06)');
+        sheen.addColorStop(1, 'rgba(0,0,0,0.20)');
+        ctx.fillStyle = sheen;
+        ctx.fillRect(0, 0, s, s);
+
+        PATTERNS[TILE_PATTERNS[cell]](ctx, s);
 
         // rim so neighbouring tiles stay readable on the board
         ctx.lineWidth = s * 0.05;
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
         ctx.strokeRect(s * 0.025, s * 0.025, s * 0.95, s * 0.95);
         ctx.lineWidth = s * 0.018;
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
         ctx.strokeRect(s * 0.07, s * 0.07, s * 0.86, s * 0.86);
 
         ctx.restore();
-        grain(ctx, ox, oy, s, GRAIN);
       }
 
       /* ---------- render ---------- */
@@ -386,14 +394,17 @@
       }
 
       render(document.getElementById('cube'), CUBE_LAYOUT, drawCubeFace);
-      render(document.getElementById('tile'), TILE_LAYOUT, (ctx, x, y, s, i) =>
-        drawTile(ctx, x, y, s, TILE_CELLS[i]),
-      );
+      render(document.getElementById('tile'), TILE_LAYOUT, drawTile);
 
       document.getElementById('cube-legend').innerHTML = FACE_COLORS.map(
         (id, slot) =>
           `<li><i style="background:${COLORS[id].css}"></i>cell ${slot} &mdash; slot ${SLOT_NAMES[slot]} &mdash; ${COLORS[id].name} <code>${COLORS[id].css}</code></li>`,
       ).join('');
+
+      document.getElementById('tile-legend').innerHTML = TILE_COLOURS.map((colour, cell) => {
+        const role = cell < COLORS.length ? `colour id ${cell}` : cell === 6 ? 'neutral' : 'spare';
+        return `<li><i style="background:${colour.css}"></i>cell ${cell} &mdash; ${role} &mdash; ${colour.name} <code>${colour.css}</code></li>`;
+      }).join('');
 
       for (const button of document.querySelectorAll('button[data-canvas]')) {
         button.addEventListener('click', () => {

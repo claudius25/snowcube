@@ -20,9 +20,12 @@ export interface AtlasLayout {
 export const CUBE_ATLAS: AtlasLayout = { url: 'textures/cube-atlas.png', columns: 3, rows: 2 };
 
 /**
- * Greyscale detail atlas for the tiles. 1024x1024, 3x3 cells of ~341px.
+ * Full-colour atlas for the tiles. 3072x3072, 3x3 cells of 1024px.
  * Cells 0-5 match the colour ids in colors.ts, cell 6 is the neutral snow tile
  * and cells 7-8 are spare.
+ *
+ * Each cell is only ever shown for its own colour, so like the cube atlas it
+ * carries the hue itself and the renderer drops the material tint to white.
  */
 export const TILE_ATLAS: AtlasLayout = { url: 'textures/tile-atlas.png', columns: 3, rows: 3 };
 

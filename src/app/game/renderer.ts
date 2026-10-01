@@ -53,6 +53,8 @@ const ROLL_SECONDS = 0.22;
 const BUMP_SECONDS = 0.18;
 const TINT_SECONDS = 0.28;
 const POP_SECONDS = 0.4;
+/** Overbright tint a tile starts from when its atlas cell swaps. */
+const TILE_FLASH = 1.8;
 const BEAM_SECONDS = 0.9;
 /** Short enough that the falloff finishes before the ortho frustum clips it. */
 const BEAM_HEIGHT = 4.5;
@@ -62,6 +64,9 @@ const DEFAULT_AZIMUTH = Math.PI / 4;
 /** Fixed camera pitch — the view only orbits horizontally. */
 const ELEVATION = Math.atan(1 / Math.SQRT2); // true isometric
 const ORDER: readonly Direction[] = ['north', 'east', 'south', 'west'];
+/** Lowest and highest points in the scene: underside of the base slab, top of a standing cube. */
+const SCENE_BOTTOM = -0.78;
+const SCENE_TOP = TILE;
 
 export type ScreenKey = 'up' | 'right' | 'down' | 'left';
 
@@ -134,7 +139,7 @@ export class GameRenderer {
   private readonly board = new Group();
   private readonly raycaster = new Raycaster();
   private readonly pointer = new Vector2();
-  private readonly target = new Vector3(0, 0.3, 0);
+  private readonly target = new Vector3(0, (SCENE_TOP + SCENE_BOTTOM) / 2, 0);
 
   private renderer!: WebGLRenderer;
   private keyLight!: DirectionalLight;
@@ -402,6 +407,8 @@ export class GameRenderer {
         this.tiles[i].material.map = cellTexture(this.tileAtlas, TILE_ATLAS, cell);
         this.tiles[i].material.needsUpdate = true;
       }
+      // Re-apply tints now that the hue comes from the atlas instead of the material.
+      this.syncTiles(true);
     }
   }
 
@@ -494,13 +501,28 @@ export class GameRenderer {
     }
   }
 
+  /** With a colour atlas the hue lives in the texture, so the tint only flashes. */
+  private tileTint(colorId: number): number {
+    if (this.tileAtlas) return 0xffffff;
+    return colorId === NEUTRAL ? SNOW.hex : colorHex(colorId);
+  }
+
   private setTileColor(index: number, colorId: number, instant: boolean, pop: boolean): void {
     const tile = this.tiles[index];
-    const hex = colorId === NEUTRAL ? SNOW.hex : colorHex(colorId);
-    tile.from.copy(tile.material.color);
+    const hex = this.tileTint(colorId);
+
+    if (instant) {
+      tile.tint = 1;
+      tile.material.color.setHex(hex);
+    } else {
+      // The atlas cell swaps in one frame, so the change reads as a flash, not a cross-fade.
+      if (this.tileAtlas) tile.from.setScalar(TILE_FLASH);
+      else tile.from.copy(tile.material.color);
+      tile.material.color.copy(tile.from);
+      tile.tint = 0;
+    }
+
     tile.to.setHex(hex);
-    tile.tint = instant ? 1 : 0;
-    if (instant) tile.material.color.setHex(hex);
     if (pop) tile.pop = 1;
     if (tile.material.map) {
       setAtlasCell(tile.material.map, TILE_ATLAS, tileAtlasCell(colorId));
@@ -608,9 +630,12 @@ export class GameRenderer {
     this.renderer.setSize(width, height, false);
 
     const aspect = width / height;
-    const needHalfWidth = this.engine.size * 0.78;
-    const needHalfHeight = this.engine.size * 0.52;
-    const half = (Math.max(needHalfHeight, needHalfWidth / aspect) * 1.06) / this.zoom;
+    // Half the board's diagonal, which is its widest span on screen in isometric.
+    const reach = ((this.engine.size * TILE) / 2) * Math.SQRT2;
+    const needHalfWidth = reach;
+    const needHalfHeight =
+      reach * Math.sin(ELEVATION) + ((SCENE_TOP - SCENE_BOTTOM) / 2) * Math.cos(ELEVATION);
+    const half = Math.max(needHalfHeight, needHalfWidth / aspect) / this.zoom;
 
     this.camera.left = -half * aspect;
     this.camera.right = half * aspect;

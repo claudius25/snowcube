@@ -66,12 +66,11 @@
       <div class="field">
         <span>Board</span>
         <div class="segmented">
-          <button type="button" [class.on]="boardSize() === 8" (click)="setBoardSize(8)">
-            8 &times; 8
-          </button>
-          <button type="button" [class.on]="boardSize() === 10" (click)="setBoardSize(10)">
-            10 &times; 10
-          </button>
+          @for (size of boardSizes; track size) {
+            <button type="button" [class.on]="boardSize() === size" (click)="setBoardSize(size)">
+              {{ size }}&times;{{ size }}
+            </button>
+          }
         </div>
       </div>
       <div class="field">
@@ -95,16 +94,6 @@
         <button type="button" (click)="resetCamera()">Reset view</button>
         <button type="button" class="primary" (click)="restart()">Restart</button>
       </div>
-    </section>
-
-    <section class="legend">
-      <h2>Palette</h2>
-      <ul>
-        @for (color of palette; track color.name) {
-          <li><i [style.background]="color.css"></i>{{ color.name }}</li>
-        }
-        <li><i [style.background]="snow.css"></i>{{ snow.name }}</li>
-      </ul>
     </section>
 
     <footer class="help">

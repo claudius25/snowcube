@@ -9,7 +9,6 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { COLORS, SNOW } from './colors';
 import { Cell, DEFAULT_OPTIONS, Direction, GameEngine } from './engine';
 import { GameRenderer, ScreenKey } from './renderer';
 
@@ -28,8 +27,7 @@ export class Game implements AfterViewInit, OnDestroy {
   private renderer?: GameRenderer;
   private queued: Direction | null = null;
 
-  readonly palette = COLORS;
-  readonly snow = SNOW;
+  readonly boardSizes: readonly number[] = [6, 7, 8, 10];
 
   readonly score = signal(0);
   readonly moves = signal(0);
