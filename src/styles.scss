@@ -8,9 +8,15 @@ body {
   color: #e8eefb;
   background:
     radial-gradient(1200px 700px at 18% -10%, #1d2b4a 0%, transparent 60%),
-    radial-gradient(900px 600px at 95% 110%, #2a1d47 0%, transparent 55%),
-    #070b14;
-  font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    radial-gradient(900px 600px at 95% 110%, #2a1d47 0%, transparent 55%), #070b14;
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 

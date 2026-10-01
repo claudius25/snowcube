@@ -9,24 +9,11 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { COLORS, colorCss, SNOW, tileColor } from './colors';
-import {
-  Cell,
-  DEFAULT_OPTIONS,
-  Direction,
-  GameEngine,
-  NEUTRAL,
-  Preview,
-} from './engine';
+import { COLORS, SNOW } from './colors';
+import { Cell, DEFAULT_OPTIONS, Direction, GameEngine } from './engine';
 import { GameRenderer, ScreenKey } from './renderer';
 
 const BEST_SCORE_KEY = 'snowcube.best';
-
-interface PadButton {
-  readonly direction: Direction;
-  readonly glyph: string;
-  readonly key: string;
-}
 
 @Component({
   selector: 'app-game',
@@ -41,14 +28,6 @@ export class Game implements AfterViewInit, OnDestroy {
   private renderer?: GameRenderer;
   private queued: Direction | null = null;
 
-  /** Screen-space layout of the pad; matches the isometric axes. */
-  readonly pad: readonly PadButton[] = [
-    { direction: 'west', glyph: '\u2196', key: '\u2190' },
-    { direction: 'north', glyph: '\u2197', key: '\u2191' },
-    { direction: 'south', glyph: '\u2199', key: '\u2193' },
-    { direction: 'east', glyph: '\u2198', key: '\u2192' },
-  ];
-
   readonly palette = COLORS;
   readonly snow = SNOW;
 
@@ -59,9 +38,6 @@ export class Game implements AfterViewInit, OnDestroy {
   readonly cleared = signal(0);
   readonly colored = signal(0);
   readonly gameOver = signal(false);
-  readonly bottomColor = signal(NEUTRAL);
-  readonly topColor = signal(NEUTRAL);
-  readonly previews = signal<Record<Direction, Preview>>(this.engine.previews());
   readonly best = signal(this.loadBest());
 
   readonly boardSize = signal(DEFAULT_OPTIONS.size);
@@ -131,14 +107,6 @@ export class Game implements AfterViewInit, OnDestroy {
     this.renderer?.resetCamera();
   }
 
-  css(colorId: number): string {
-    return colorCss(colorId);
-  }
-
-  name(colorId: number): string {
-    return tileColor(colorId).name;
-  }
-
   @HostListener('window:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
     if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey) return;
@@ -200,9 +168,6 @@ export class Game implements AfterViewInit, OnDestroy {
     this.cleared.set(this.engine.neutralized);
     this.colored.set(this.engine.coloredCount);
     this.gameOver.set(this.engine.gameOver);
-    this.bottomColor.set(this.engine.bottomColor);
-    this.topColor.set(this.engine.topColor);
-    this.previews.set(this.engine.previews());
 
     if (this.engine.score > this.best()) {
       this.best.set(this.engine.score);

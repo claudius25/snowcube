@@ -1,9 +1,13 @@
 import {
   ACESFilmicToneMapping,
+  AdditiveBlending,
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   Color,
+  CylinderGeometry,
   DirectionalLight,
+  DoubleSide,
   EdgesGeometry,
   Group,
   HemisphereLight,
@@ -11,12 +15,14 @@ import {
   LineSegments,
   Material,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   OrthographicCamera,
   PCFShadowMap,
   Quaternion,
   Raycaster,
   Scene,
+  Texture,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -34,13 +40,27 @@ import {
   TILE,
   UP,
 } from './engine';
+import {
+  cellTexture,
+  CUBE_ATLAS,
+  loadAtlas,
+  setAtlasCell,
+  TILE_ATLAS,
+  tileAtlasCell,
+} from './textures';
 
 const ROLL_SECONDS = 0.22;
 const BUMP_SECONDS = 0.18;
 const TINT_SECONDS = 0.28;
 const POP_SECONDS = 0.4;
+const BEAM_SECONDS = 0.9;
+/** Short enough that the falloff finishes before the ortho frustum clips it. */
+const BEAM_HEIGHT = 4.5;
+/** Enough beams for a streak to overlap without reusing one mid-flight. */
+const BEAM_POOL = 4;
 const DEFAULT_AZIMUTH = Math.PI / 4;
-const DEFAULT_ELEVATION = Math.atan(1 / Math.SQRT2); // true isometric
+/** Fixed camera pitch — the view only orbits horizontally. */
+const ELEVATION = Math.atan(1 / Math.SQRT2); // true isometric
 const ORDER: readonly Direction[] = ['north', 'east', 'south', 'west'];
 
 export type ScreenKey = 'up' | 'right' | 'down' | 'left';
@@ -70,8 +90,35 @@ interface BumpState {
   t: number;
 }
 
+interface BeamView {
+  readonly mesh: Mesh;
+  readonly material: MeshBasicMaterial;
+  /** Counts 1 down to 0; 0 means the beam is free for reuse. */
+  life: number;
+}
+
 function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/** Vertical falloff for the beam: solid at the floor, gone by the top. */
+function createBeamTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 4;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, 'rgba(255,255,255,0)');
+  gradient.addColorStop(0.35, 'rgba(255,255,255,0.05)');
+  gradient.addColorStop(0.72, 'rgba(255,255,255,0.45)');
+  gradient.addColorStop(1, 'rgba(255,255,255,1)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  return new CanvasTexture(canvas);
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -94,14 +141,18 @@ export class GameRenderer {
   private tiles: TileView[] = [];
   private tileMeshes: Mesh[] = [];
   private cube!: Mesh;
+  private cubeMaterials: MeshStandardMaterial[] = [];
+  private cubeAtlas?: Texture;
+  private tileAtlas?: Texture;
   private tileGeometry?: BufferGeometry;
   private disposables: (BufferGeometry | Material)[] = [];
 
   private roll: RollState | null = null;
   private bump: BumpState | null = null;
+  private beams: BeamView[] = [];
+  private beamTexture?: CanvasTexture;
 
   private azimuth = DEFAULT_AZIMUTH;
-  private elevation = DEFAULT_ELEVATION;
   private zoom = 1;
   private elapsed = 0;
   private lastTime = 0;
@@ -132,6 +183,7 @@ export class GameRenderer {
     this.scene.add(this.board);
     this.addLights();
     this.build();
+    this.loadTextures();
 
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
@@ -157,6 +209,9 @@ export class GameRenderer {
     this.canvas.removeEventListener('pointercancel', this.onPointerUp);
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.clearBoard();
+    this.cubeAtlas?.dispose();
+    this.tileAtlas?.dispose();
+    this.beamTexture?.dispose();
     this.renderer?.dispose();
   }
 
@@ -175,7 +230,6 @@ export class GameRenderer {
 
   resetCamera(): void {
     this.azimuth = DEFAULT_AZIMUTH;
-    this.elevation = DEFAULT_ELEVATION;
     this.zoom = 1;
     this.resize();
   }
@@ -191,7 +245,10 @@ export class GameRenderer {
   playMove(outcome: MoveOutcome, done: () => void): void {
     const v = DIRECTION_VECTORS[outcome.direction];
     const from = this.worldPosition(outcome.from.x, outcome.from.z).setY(TILE / 2);
-    const pivot = from.clone().addScaledVector(v, TILE / 2).setY(0);
+    const pivot = from
+      .clone()
+      .addScaledVector(v, TILE / 2)
+      .setY(0);
     this.roll = {
       axis: new Vector3().crossVectors(UP, v).normalize(),
       pivot,
@@ -263,7 +320,11 @@ export class GameRenderer {
     }
 
     const baseGeometry = new BoxGeometry(size * TILE + 0.7, 0.55, size * TILE + 0.7);
-    const baseMaterial = new MeshStandardMaterial({ color: 0x1b2433, roughness: 0.9, metalness: 0.1 });
+    const baseMaterial = new MeshStandardMaterial({
+      color: 0x1b2433,
+      roughness: 0.9,
+      metalness: 0.1,
+    });
     const base = new Mesh(baseGeometry, baseMaterial);
     base.position.set(0, -0.5, 0);
     base.receiveShadow = true;
@@ -271,7 +332,7 @@ export class GameRenderer {
     this.disposables.push(baseGeometry, baseMaterial);
 
     const cubeGeometry = new BoxGeometry(TILE, TILE, TILE);
-    const cubeMaterials = FACE_COLORS.map(
+    this.cubeMaterials = FACE_COLORS.map(
       (id) =>
         new MeshStandardMaterial({
           color: colorHex(id),
@@ -281,16 +342,22 @@ export class GameRenderer {
           emissiveIntensity: 0.07,
         }),
     );
-    this.cube = new Mesh(cubeGeometry, cubeMaterials);
+    this.cube = new Mesh(cubeGeometry, this.cubeMaterials);
     this.cube.castShadow = true;
-    this.disposables.push(cubeGeometry, ...cubeMaterials);
+    this.disposables.push(cubeGeometry, ...this.cubeMaterials);
 
     const edgeGeometry = new EdgesGeometry(cubeGeometry);
-    const edgeMaterial = new LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.45 });
+    const edgeMaterial = new LineBasicMaterial({
+      color: 0x0f172a,
+      transparent: true,
+      opacity: 0.45,
+    });
     this.cube.add(new LineSegments(edgeGeometry, edgeMaterial));
     this.disposables.push(edgeGeometry, edgeMaterial);
 
     this.board.add(this.cube);
+
+    this.buildBeams();
 
     const shadowSpan = size * 0.85 + 2;
     this.keyLight.shadow.camera.left = -shadowSpan;
@@ -304,6 +371,94 @@ export class GameRenderer {
     this.syncTiles(true);
     this.syncCube();
     this.refreshHints();
+    this.applyAtlases();
+  }
+
+  private loadTextures(): void {
+    const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    loadAtlas(CUBE_ATLAS, anisotropy, (texture) => {
+      this.cubeAtlas = texture;
+      this.applyAtlases();
+    });
+    loadAtlas(TILE_ATLAS, anisotropy, (texture) => {
+      this.tileAtlas = texture;
+      this.applyAtlases();
+    });
+  }
+
+  /** Hands every material its own view onto the shared atlas image. */
+  private applyAtlases(): void {
+    if (this.cubeAtlas) {
+      this.cubeMaterials.forEach((material, slot) => {
+        material.map = cellTexture(this.cubeAtlas!, CUBE_ATLAS, slot);
+        // The cube atlas is already in colour; the flat tint is only a no-texture fallback.
+        material.color.setHex(0xffffff);
+        material.needsUpdate = true;
+      });
+    }
+    if (this.tileAtlas) {
+      for (let i = 0; i < this.tiles.length; i++) {
+        const cell = tileAtlasCell(this.engine.tiles[i]);
+        this.tiles[i].material.map = cellTexture(this.tileAtlas, TILE_ATLAS, cell);
+        this.tiles[i].material.needsUpdate = true;
+      }
+    }
+  }
+
+  /** Pool of reusable light columns, one fired per neutralised tile. */
+  private buildBeams(): void {
+    this.beamTexture ??= createBeamTexture();
+    const geometry = new CylinderGeometry(0.58, 0.34, BEAM_HEIGHT, 24, 1, true);
+    geometry.translate(0, BEAM_HEIGHT / 2, 0);
+    this.disposables.push(geometry);
+
+    for (let i = 0; i < BEAM_POOL; i++) {
+      const material = new MeshBasicMaterial({
+        map: this.beamTexture,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        // Additive FX should keep its punch rather than be rolled off by ACES.
+        toneMapped: false,
+      });
+      const mesh = new Mesh(geometry, material);
+      mesh.visible = false;
+      mesh.renderOrder = 2;
+      this.board.add(mesh);
+      this.disposables.push(material);
+      this.beams.push({ mesh, material, life: 0 });
+    }
+  }
+
+  private fireBeam(cell: Cell, colorId: number): void {
+    const beam =
+      this.beams.find((candidate) => candidate.life <= 0) ??
+      this.beams.reduce((oldest, candidate) => (candidate.life < oldest.life ? candidate : oldest));
+    if (!beam) return;
+
+    beam.mesh.position.copy(this.worldPosition(cell.x, cell.z));
+    beam.mesh.rotation.y = Math.random() * Math.PI;
+    beam.mesh.visible = true;
+    beam.material.color.setHex(colorHex(colorId));
+    beam.life = 1;
+  }
+
+  private updateBeams(dt: number): void {
+    for (const beam of this.beams) {
+      if (beam.life <= 0) continue;
+
+      beam.life = Math.max(0, beam.life - dt / BEAM_SECONDS);
+      const t = 1 - beam.life;
+      const shoot = easeOutCubic(Math.min(1, t / 0.18));
+
+      beam.mesh.scale.set(1 + t * 0.45, 0.12 + shoot * 0.88, 1 + t * 0.45);
+      beam.mesh.rotation.y += dt * 1.6;
+      beam.material.opacity = Math.pow(beam.life, 1.5);
+
+      if (beam.life === 0) beam.mesh.visible = false;
+    }
   }
 
   private clearBoard(): void {
@@ -313,6 +468,7 @@ export class GameRenderer {
     }
     this.tiles = [];
     this.tileMeshes = [];
+    this.beams = [];
     this.tileGeometry?.dispose();
     this.tileGeometry = undefined;
     for (const item of this.disposables) item.dispose();
@@ -326,7 +482,9 @@ export class GameRenderer {
   }
 
   private syncCube(): void {
-    this.cube.position.copy(this.worldPosition(this.engine.cube.x, this.engine.cube.z)).setY(TILE / 2);
+    this.cube.position
+      .copy(this.worldPosition(this.engine.cube.x, this.engine.cube.z))
+      .setY(TILE / 2);
     this.cube.quaternion.copy(this.engine.rotation);
   }
 
@@ -344,6 +502,9 @@ export class GameRenderer {
     tile.tint = instant ? 1 : 0;
     if (instant) tile.material.color.setHex(hex);
     if (pop) tile.pop = 1;
+    if (tile.material.map) {
+      setAtlasCell(tile.material.map, TILE_ATLAS, tileAtlasCell(colorId));
+    }
   }
 
   private refreshHints(): void {
@@ -372,6 +533,7 @@ export class GameRenderer {
     this.updateRoll(dt);
     this.updateBump(dt);
     this.updateTiles(dt);
+    this.updateBeams(dt);
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -393,6 +555,8 @@ export class GameRenderer {
     const outcome = roll.outcome;
     if (outcome.neutralized) {
       this.setTileColor(this.engine.index(outcome.to.x, outcome.to.z), NEUTRAL, false, true);
+      // A match means the tile's colour equalled the landing face.
+      this.fireBeam(outcome.to, outcome.landingColor);
     }
     if (outcome.spawned) {
       const spawned = outcome.spawned;
@@ -461,9 +625,9 @@ export class GameRenderer {
   private updateCamera(): void {
     const radius = Math.max(this.engine.size, 8) * 3;
     this.camera.position.set(
-      Math.cos(this.elevation) * Math.sin(this.azimuth),
-      Math.sin(this.elevation),
-      Math.cos(this.elevation) * Math.cos(this.azimuth),
+      Math.cos(ELEVATION) * Math.sin(this.azimuth),
+      Math.sin(ELEVATION),
+      Math.cos(ELEVATION) * Math.cos(this.azimuth),
     );
     this.camera.position.multiplyScalar(radius).add(this.target);
     this.camera.lookAt(this.target);
@@ -484,7 +648,6 @@ export class GameRenderer {
     this.lastPointer.set(event.clientX, event.clientY);
 
     this.azimuth -= dx * 0.006;
-    this.elevation = clamp(this.elevation - dy * 0.005, 0.22, 1.45);
     this.updateCamera();
   };
 

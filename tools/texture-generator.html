@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Snowcube texture atlas generator</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        padding: 32px;
+        background: #0b1120;
+        color: #e8eefb;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+      p {
+        max-width: 72ch;
+        color: #93a3bd;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      section {
+        margin-top: 32px;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 0 0 4px;
+      }
+      canvas {
+        display: block;
+        margin: 12px 0;
+        max-width: 100%;
+        height: auto;
+        background: #16203a;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+      }
+      button {
+        padding: 8px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #3d8bfd;
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        font-size: 12px;
+      }
+      ol.legend {
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+        font-size: 13px;
+        color: #c3cfe4;
+      }
+      ol.legend li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 0;
+      }
+      ol.legend i {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Snowcube texture atlases</h1>
+    <p>
+      The two atlases work differently. <strong>cube-atlas.png is full colour</strong> and defines
+      the cube's appearance outright. <strong>tile-atlas.png is a greyscale detail map</strong>
+      that three.js multiplies by <code>material.color</code>, because tiles recolour at runtime &mdash;
+      keep its pixels light and completely hue-free or you will tint the whole palette. Edit the
+      drawing functions below, reload, and download. Save the files into <code>public/textures/</code>.
+    </p>
+
+    <section>
+      <h2>cube-atlas.png &mdash; 3072 &times; 2048, 3 &times; 2 cells of 1024px</h2>
+      <p>
+        <strong>This one is full colour.</strong> It carries the cube's hue itself, so the renderer
+        drops the material tint to white once it loads. Cells run left-to-right then top-to-bottom
+        and map onto BoxGeometry's material slots. Keep each cell in its palette colour &mdash; the
+        rules match on the face colour, so recolouring a cell desyncs what you see from what scores.
+      </p>
+      <ol id="cube-legend" class="legend"></ol>
+      <canvas id="cube"></canvas>
+      <button data-canvas="cube" data-name="cube-atlas.png">Download cube-atlas.png</button>
+    </section>
+
+    <section>
+      <h2>tile-atlas.png &mdash; 1024 &times; 1024, 3 &times; 3 cells</h2>
+      <p>
+        <strong>This one stays greyscale.</strong> Tiles change colour at runtime, so the board tint
+        has to come from <code>material.color</code>. Cells 0&ndash;5 are the six palette colours
+        (Ruby, Amber, Citrine, Jade, Azure, Violet), cell 6 is the neutral snow tile, cells
+        7&ndash;8 are spare. Each colour gets its own pattern so a board of mixed tiles reads clearly.
+      </p>
+      <canvas id="tile"></canvas>
+      <button data-canvas="tile" data-name="tile-atlas.png">Download tile-atlas.png</button>
+    </section>
+
+    <script type="module">
+      // Must mirror COLORS in src/app/game/colors.ts.
+      const COLORS = [
+        { name: 'Ruby', css: '#e6394a' },
+        { name: 'Amber', css: '#f5912b' },
+        { name: 'Citrine', css: '#f0d244' },
+        { name: 'Jade', css: '#35c07a' },
+        { name: 'Azure', css: '#3d8bfd' },
+        { name: 'Violet', css: '#9b5de5' },
+      ];
+
+      // Must mirror FACE_COLORS in src/app/game/engine.ts.
+      const FACE_COLORS = [0, 3, 1, 4, 2, 5];
+      const SLOT_NAMES = ['+X', '-X', '+Y (top)', '-Y (bottom)', '+Z', '-Z'];
+
+      const CUBE_LAYOUT = { width: 3072, height: 2048, columns: 3, rows: 2 };
+      const TILE_LAYOUT = { width: 1024, height: 1024, columns: 3, rows: 3 };
+
+      // Per-pixel noise destroys PNG compression (a few kB becomes ~2 MB). Raise it only
+      // if you are willing to ship the bigger file, or export to JPEG instead.
+      const GRAIN = 0;
+
+      /* ---------- helpers ---------- */
+
+      function roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      function grain(ctx, x, y, s, amount) {
+        if (amount <= 0) return;
+        const image = ctx.getImageData(x, y, s, s);
+        const data = image.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const n = (Math.random() - 0.5) * amount;
+          data[i] = Math.max(0, Math.min(255, data[i] + n));
+          data[i + 1] = data[i];
+          data[i + 2] = data[i];
+        }
+        ctx.putImageData(image, x, y);
+      }
+
+      /* ---------- cube faces ---------- */
+
+      function drawCubeFace(ctx, ox, oy, s, slot) {
+        const colour = COLORS[FACE_COLORS[slot]];
+        ctx.save();
+        ctx.translate(ox, oy);
+        ctx.beginPath();
+        ctx.rect(0, 0, s, s);
+        ctx.clip();
+
+        // flat colour floor, so even the darkest corner stays on-hue
+        ctx.fillStyle = colour.css;
+        ctx.fillRect(0, 0, s, s);
+
+        // domed shading, lit towards the upper left and falling off to the rim
+        const dome = ctx.createRadialGradient(s * 0.38, s * 0.34, s * 0.04, s * 0.5, s * 0.5, s * 0.82);
+        dome.addColorStop(0, 'rgba(255,255,255,0.42)');
+        dome.addColorStop(0.55, 'rgba(255,255,255,0.08)');
+        dome.addColorStop(1, 'rgba(0,0,0,0.28)');
+        ctx.fillStyle = dome;
+        ctx.fillRect(0, 0, s, s);
+
+        // brushed hatching, rotated per face so the six cells differ
+        ctx.save();
+        ctx.translate(s / 2, s / 2);
+        ctx.rotate((slot * Math.PI) / 6 + Math.PI / 4);
+        ctx.fillStyle = 'rgba(0,0,0,0.05)';
+        for (let i = -s; i <= s; i += s * 0.07) ctx.fillRect(i, -s, s * 0.027, 2 * s);
+        ctx.restore();
+
+        // inset panel
+        const inset = s * 0.11;
+        roundRect(ctx, inset, inset, s - 2 * inset, s - 2 * inset, s * 0.1);
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
+        ctx.fill();
+        ctx.lineWidth = s * 0.022;
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.stroke();
+
+        const inner = inset + s * 0.028;
+        roundRect(ctx, inner, inner, s - 2 * inner, s - 2 * inner, s * 0.08);
+        ctx.lineWidth = s * 0.012;
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.stroke();
+
+        // corner studs
+        const studR = s * 0.032;
+        const margin = s * 0.055;
+        for (const [cx, cy] of [
+          [margin, margin],
+          [s - margin, margin],
+          [margin, s - margin],
+          [s - margin, s - margin],
+        ]) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, studR, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0,0,0,0.22)';
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(cx - studR * 0.25, cy - studR * 0.25, studR * 0.55, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(255,255,255,0.55)';
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
+      /* ---------- tile patterns ---------- */
+
+      const PATTERNS = {
+        // Ruby — concentric rings
+        rings(ctx, s) {
+          ctx.lineWidth = s * 0.034;
+          ctx.strokeStyle = 'rgba(0,0,0,0.095)';
+          for (let r = s * 0.08; r < s * 0.8; r += s * 0.1) {
+            ctx.beginPath();
+            ctx.arc(s / 2, s / 2, r, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        },
+        // Amber — diagonal bands
+        stripes(ctx, s) {
+          ctx.save();
+          ctx.translate(s / 2, s / 2);
+          ctx.rotate(-Math.PI / 4);
+          ctx.fillStyle = 'rgba(0,0,0,0.085)';
+          for (let i = -s; i <= s; i += s * 0.13) ctx.fillRect(i, -s, s * 0.065, 2 * s);
+          ctx.restore();
+        },
+        // Citrine — offset dot grid
+        dots(ctx, s) {
+          const n = 6;
+          const step = s / n;
+          ctx.fillStyle = 'rgba(0,0,0,0.1)';
+          for (let row = 0; row < n; row++) {
+            for (let col = 0; col < n + 1; col++) {
+              const cx = col * step + (row % 2 ? 0 : step / 2);
+              ctx.beginPath();
+              ctx.arc(cx, row * step + step / 2, step * 0.2, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        },
+        // Jade — woven checker
+        weave(ctx, s) {
+          const n = 8;
+          const step = s / n;
+          for (let row = 0; row < n; row++) {
+            for (let col = 0; col < n; col++) {
+              ctx.fillStyle = (row + col) % 2 ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.45)';
+              roundRect(ctx, col * step + 2, row * step + 2, step - 4, step - 4, step * 0.22);
+              ctx.fill();
+            }
+          }
+        },
+        // Azure — stacked waves
+        waves(ctx, s) {
+          ctx.lineWidth = s * 0.028;
+          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+          for (let y = s * 0.08; y < s; y += s * 0.15) {
+            ctx.beginPath();
+            for (let x = 0; x <= s; x += 4) {
+              const yy = y + Math.sin((x / s) * Math.PI * 3) * s * 0.035;
+              if (x === 0) ctx.moveTo(x, yy);
+              else ctx.lineTo(x, yy);
+            }
+            ctx.stroke();
+          }
+        },
+        // Violet — chevrons
+        chevrons(ctx, s) {
+          ctx.lineWidth = s * 0.032;
+          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+          const period = s * 0.26;
+          for (let y = -s * 0.1; y < s * 1.15; y += s * 0.17) {
+            ctx.beginPath();
+            for (let x = 0; x <= s + period; x += period / 2) {
+              const yy = y + ((x / (period / 2)) % 2 < 1 ? 0 : s * 0.085);
+              if (x === 0) ctx.moveTo(x, yy);
+              else ctx.lineTo(x, yy);
+            }
+            ctx.stroke();
+          }
+        },
+        // Snow — frost crystal
+        frost(ctx, s) {
+          ctx.save();
+          ctx.translate(s / 2, s / 2);
+          ctx.lineWidth = s * 0.014;
+          ctx.strokeStyle = 'rgba(0,0,0,0.075)';
+          for (let k = 0; k < 12; k++) {
+            ctx.save();
+            ctx.rotate((k * Math.PI * 2) / 12);
+            ctx.beginPath();
+            ctx.moveTo(0, s * 0.05);
+            ctx.lineTo(0, s * 0.42);
+            ctx.stroke();
+            for (const at of [0.17, 0.27, 0.36]) {
+              ctx.beginPath();
+              ctx.moveTo(0, s * at);
+              ctx.lineTo(s * 0.06, s * (at + 0.06));
+              ctx.moveTo(0, s * at);
+              ctx.lineTo(-s * 0.06, s * (at + 0.06));
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+          ctx.restore();
+        },
+        plain() {},
+      };
+
+      const TILE_CELLS = [
+        'rings',
+        'stripes',
+        'dots',
+        'weave',
+        'waves',
+        'chevrons',
+        'frost',
+        'plain',
+        'plain',
+      ];
+
+      function drawTile(ctx, ox, oy, s, pattern) {
+        ctx.save();
+        ctx.translate(ox, oy);
+        ctx.beginPath();
+        ctx.rect(0, 0, s, s);
+        ctx.clip();
+
+        const base = ctx.createRadialGradient(s * 0.4, s * 0.34, s * 0.08, s * 0.5, s * 0.5, s * 0.8);
+        base.addColorStop(0, '#ffffff');
+        base.addColorStop(0.65, '#f4f4f4');
+        base.addColorStop(1, '#d4d4d4');
+        ctx.fillStyle = base;
+        ctx.fillRect(0, 0, s, s);
+
+        PATTERNS[pattern](ctx, s);
+
+        // rim so neighbouring tiles stay readable on the board
+        ctx.lineWidth = s * 0.05;
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.strokeRect(s * 0.025, s * 0.025, s * 0.95, s * 0.95);
+        ctx.lineWidth = s * 0.018;
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.strokeRect(s * 0.07, s * 0.07, s * 0.86, s * 0.86);
+
+        ctx.restore();
+        grain(ctx, ox, oy, s, GRAIN);
+      }
+
+      /* ---------- render ---------- */
+
+      function render(canvas, layout, draw) {
+        canvas.width = layout.width;
+        canvas.height = layout.height;
+        canvas.style.width = '640px';
+        const cw = layout.width / layout.columns;
+        const ch = layout.height / layout.rows;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        for (let i = 0; i < layout.columns * layout.rows; i++) {
+          draw(ctx, (i % layout.columns) * cw, Math.floor(i / layout.columns) * ch, cw, i);
+        }
+      }
+
+      render(document.getElementById('cube'), CUBE_LAYOUT, drawCubeFace);
+      render(document.getElementById('tile'), TILE_LAYOUT, (ctx, x, y, s, i) =>
+        drawTile(ctx, x, y, s, TILE_CELLS[i]),
+      );
+
+      document.getElementById('cube-legend').innerHTML = FACE_COLORS.map(
+        (id, slot) =>
+          `<li><i style="background:${COLORS[id].css}"></i>cell ${slot} &mdash; slot ${SLOT_NAMES[slot]} &mdash; ${COLORS[id].name} <code>${COLORS[id].css}</code></li>`,
+      ).join('');
+
+      for (const button of document.querySelectorAll('button[data-canvas]')) {
+        button.addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = button.dataset.name;
+          link.href = document.getElementById(button.dataset.canvas).toDataURL('image/png');
+          link.click();
+        });
+      }
+    </script>
+  </body>
+</html>
