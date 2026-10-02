@@ -35,6 +35,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { ChariotMove } from './chariot';
 import { colorHex, SNOW } from './colors';
 import {
   Cell,
@@ -48,7 +49,7 @@ import {
   TILE,
   UP,
 } from './engine';
-import { GatewayEvent, WallEvent } from './events';
+import { WallEvent } from './events';
 import { cellTexture, CUBE_ATLAS, loadAtlas } from './textures';
 
 const ROLL_SECONDS = 0.22;
@@ -64,10 +65,15 @@ const BEAM_HEIGHT = 4.5;
 const BEAM_POOL = 4;
 const TELEPORT_OUT_SECONDS = 0.18;
 const TELEPORT_IN_SECONDS = 0.26;
+const CHARIOT_ROLL_SECONDS = 0.3;
+const CHARIOT_SLAM_SECONDS = 0.34;
+const CHARIOT_WHEEL_RADIUS = 0.3;
+/** Resting height of the chariot's coloured block above the floor. */
+const CHARIOT_BLOCK_Y = 0.32;
 const WALL_HEIGHT = 0.34;
 const WALL_THICKNESS = 0.06;
-/** Rainbow colour used for gateway flashes, since a gateway has no palette colour. */
-const GATEWAY_HEX = 0x9be8ff;
+/** Rainbow colour used for portal flashes, since a portal has no palette colour. */
+const PORTAL_HEX = 0x9be8ff;
 const DEFAULT_AZIMUTH = Math.PI / 4;
 /** Seconds for the camera to close most of the gap to the dragged angle. */
 const CAMERA_EASE = 0.11;
@@ -179,16 +185,39 @@ interface EventView {
   readonly label: Sprite;
   /** Resting height of the countdown; it bobs around this. */
   readonly labelY: number;
-  /** Gateway end rings; they pulse every frame. */
-  readonly rings: Object3D[];
   readonly trash: (BufferGeometry | Material)[];
   movesLeft: number;
+}
+
+interface PortalView {
+  readonly cell: Cell;
+  readonly group: Group;
+  /** Ends of the arc; they pulse every frame. */
+  readonly rings: Object3D[];
+  readonly trash: (BufferGeometry | Material)[];
 }
 
 interface TeleportState {
   readonly to: Cell;
   readonly done: () => void;
   phase: 'out' | 'in';
+  t: number;
+}
+
+interface ChariotView {
+  readonly group: Group;
+  readonly block: Mesh;
+  readonly wheels: Mesh[];
+  readonly trash: (BufferGeometry | Material)[];
+}
+
+interface ChariotState {
+  readonly from: Vector3;
+  readonly to: Vector3;
+  readonly crushed: Cell | null;
+  phase: 'roll' | 'slam';
+  /** The tile is only cleared once, at the bottom of the slam. */
+  applied: boolean;
   t: number;
 }
 
@@ -220,7 +249,7 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
 
-/** One hue sweep, tiled along the gateway arc and scrolled for the shimmer. */
+/** One hue sweep, tiled along the portal arc and scrolled for the shimmer. */
 function createRainbowTexture(): CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -296,6 +325,9 @@ export class GameRenderer {
   private beamTexture?: CanvasTexture;
   private readonly eventsGroup = new Group();
   private eventViews: EventView[] = [];
+  private portalView: PortalView | null = null;
+  private chariotView: ChariotView | null = null;
+  private chariotAnim: ChariotState | null = null;
   private rainbowTexture?: CanvasTexture;
   private readonly countTextures = new Map<number, CanvasTexture>();
 
@@ -394,6 +426,8 @@ export class GameRenderer {
   refreshTiles(instant = false): void {
     this.syncTiles(instant);
     this.syncEvents();
+    this.syncPortal();
+    this.syncChariot();
     this.refreshHints();
   }
 
@@ -629,6 +663,7 @@ export class GameRenderer {
     this.attachModel();
 
     this.buildBeams();
+    this.buildChariot();
 
     const shadowSpan = size * 0.85 + 2;
     this.keyLight.shadow.camera.left = -shadowSpan;
@@ -642,6 +677,7 @@ export class GameRenderer {
     this.syncTiles(true);
     this.syncCube();
     this.syncEvents();
+    this.syncPortal();
     this.refreshHints();
     this.applyAtlases();
   }
@@ -722,23 +758,32 @@ export class GameRenderer {
   }
 
   private updateEvents(dt: number): void {
-    if (this.eventViews.length === 0) return;
+    const portal = this.portalView;
+    if (this.eventViews.length === 0 && !portal) return;
 
     if (this.rainbowTexture) this.rainbowTexture.offset.x -= dt * 0.28;
-    const pulse = 1 + 0.08 * Math.sin(this.elapsed * 4);
     const bob = Math.sin(this.elapsed * 2.4) * 0.05;
+    for (const view of this.eventViews) view.label.position.y = view.labelY + bob;
 
-    for (const view of this.eventViews) {
-      view.label.position.y = view.labelY + bob;
-      for (const ring of view.rings) {
-        ring.scale.setScalar(pulse);
-        ring.rotation.z += dt * 0.8;
-      }
+    if (!portal) return;
+    const pulse = 1 + 0.08 * Math.sin(this.elapsed * 4);
+    for (const ring of portal.rings) {
+      ring.scale.setScalar(pulse);
+      ring.rotation.z += dt * 0.8;
     }
   }
 
   private clearBoard(): void {
     this.clearEventViews();
+    if (this.portalView) {
+      for (const item of this.portalView.trash) item.dispose();
+      this.portalView = null;
+    }
+    if (this.chariotView) {
+      for (const item of this.chariotView.trash) item.dispose();
+      this.chariotView = null;
+      this.chariotAnim = null;
+    }
     for (const tile of this.tiles) {
       this.board.remove(tile.group);
       tile.padMaterial.dispose();
@@ -782,7 +827,7 @@ export class GameRenderer {
     for (const event of active) {
       let view = this.eventViews.find((candidate) => candidate.id === event.id);
       if (!view) {
-        view = event.kind === 'wall' ? this.buildWallView(event) : this.buildGatewayView(event);
+        view = this.buildWallView(event);
         this.eventsGroup.add(view.group);
         this.eventViews.push(view);
       }
@@ -820,7 +865,11 @@ export class GameRenderer {
   private buildWallView(event: WallEvent): EventView {
     const group = new Group();
     const trash: (BufferGeometry | Material)[] = [];
-    const material = new MeshStandardMaterial({ color: 0x05070e, roughness: 0.45, metalness: 0.25 });
+    const material = new MeshStandardMaterial({
+      color: 0x05070e,
+      roughness: 0.45,
+      metalness: 0.25,
+    });
     trash.push(material);
 
     const centre = new Vector3();
@@ -835,8 +884,15 @@ export class GameRenderer {
 
       const mesh = new Mesh(geometry, material);
       const here = this.worldPosition(edge.x, edge.z);
-      const there = this.worldPosition(vertical ? edge.x + 1 : edge.x, vertical ? edge.z : edge.z + 1);
-      mesh.position.copy(here).add(there).multiplyScalar(0.5).setY(WALL_HEIGHT / 2);
+      const there = this.worldPosition(
+        vertical ? edge.x + 1 : edge.x,
+        vertical ? edge.z : edge.z + 1,
+      );
+      mesh.position
+        .copy(here)
+        .add(there)
+        .multiplyScalar(0.5)
+        .setY(WALL_HEIGHT / 2);
       mesh.castShadow = true;
       group.add(mesh);
       centre.add(mesh.position);
@@ -853,24 +909,62 @@ export class GameRenderer {
       label,
       labelMaterial: label.material,
       labelY: label.position.y,
-      rings: [],
       trash,
       movesLeft: event.movesLeft,
     };
   }
 
-  private buildGatewayView(event: GatewayEvent): EventView {
+  /** Mirrors `engine.portal`: the outer tile a corner offers, with its arc to the far corner. */
+  private syncPortal(): void {
+    const portal = this.engine.portal;
+    const current = this.portalView;
+    if (current && portal && current.cell.x === portal.x && current.cell.z === portal.z) return;
+
+    if (current) {
+      this.eventsGroup.remove(current.group);
+      for (const item of current.trash) item.dispose();
+      this.portalView = null;
+    }
+    if (!portal) return;
+
     this.rainbowTexture ??= createRainbowTexture();
     const group = new Group();
     const trash: (BufferGeometry | Material)[] = [];
 
-    const a = this.worldPosition(event.a.x, event.a.z).setY(0.16);
-    const b = this.worldPosition(event.b.x, event.b.z).setY(0.16);
+    // A plain snow tile, so stepping off the board does not read as stepping into nothing.
+    const padGroup = new Group();
+    padGroup.position.copy(this.worldPosition(portal.x, portal.z));
+    padGroup.userData['cell'] = portal;
+    const padGeometry = new BoxGeometry(TILE * 0.92, 0.22, TILE * 0.92);
+    const padMaterial = new MeshStandardMaterial({
+      color: SNOW.hex,
+      roughness: 0.68,
+      metalness: 0.04,
+    });
+    const pad = new Mesh(padGeometry, padMaterial);
+    pad.position.setY(-0.11);
+    pad.receiveShadow = true;
+    padGroup.add(pad);
+    trash.push(padGeometry, padMaterial);
+
+    const snow = this.instantiateTile(NEUTRAL);
+    if (snow) {
+      padGroup.add(snow);
+      pad.visible = false;
+      trash.push(...collectMaterials(snow));
+    }
+    group.add(padGroup);
+
+    const last = this.engine.size - 1;
+    const exit = { x: portal.x < 0 ? last : 0, z: last - portal.z };
+    const a = this.worldPosition(portal.x, portal.z).setY(0.16);
+    const b = this.worldPosition(exit.x, exit.z).setY(0.16);
     const apex = a
       .clone()
       .add(b)
       .multiplyScalar(0.5)
-      .setY(0.65 + a.distanceTo(b) * 0.3);
+      // Capped so the arc stays inside the camera frustum on any board size.
+      .setY(0.55 + Math.min(0.75, a.distanceTo(b) * 0.1));
 
     // Additive blending washes a full-bright rainbow out to white, so this one blends normally.
     const arcMaterial = new MeshBasicMaterial({
@@ -881,7 +975,13 @@ export class GameRenderer {
       side: DoubleSide,
       toneMapped: false,
     });
-    const arcGeometry = new TubeGeometry(new QuadraticBezierCurve3(a, apex, b), 64, 0.08, 10, false);
+    const arcGeometry = new TubeGeometry(
+      new QuadraticBezierCurve3(a, apex, b),
+      64,
+      0.08,
+      10,
+      false,
+    );
     group.add(new Mesh(arcGeometry, arcMaterial));
     trash.push(arcGeometry, arcMaterial);
 
@@ -904,20 +1004,145 @@ export class GameRenderer {
       return ring;
     });
 
-    const label = this.createLabel(apex.clone().setY(apex.y + 0.34), event.movesLeft);
-    group.add(label);
-    trash.push(label.material);
+    this.eventsGroup.add(group);
+    this.portalView = { cell: portal, group, rings, trash };
+  }
 
-    return {
-      id: event.id,
-      group,
-      label,
-      labelMaterial: label.material,
-      labelY: label.position.y,
-      rings,
-      trash,
-      movesLeft: event.movesLeft,
-    };
+  /** The helper cart: two big wheels carrying the block that crushes its colour. */
+  private buildChariot(): void {
+    if (!this.engine.chariot.enabled) return;
+
+    const group = new Group();
+    const trash: (BufferGeometry | Material)[] = [];
+    const hex = colorHex(this.engine.chariot.color);
+
+    const axleGeometry = new CylinderGeometry(0.05, 0.05, 0.62, 10);
+    axleGeometry.rotateZ(Math.PI / 2);
+    const frameMaterial = new MeshStandardMaterial({
+      color: 0x2a3550,
+      roughness: 0.55,
+      metalness: 0.4,
+    });
+    const axle = new Mesh(axleGeometry, frameMaterial);
+    axle.position.y = CHARIOT_WHEEL_RADIUS;
+    group.add(axle);
+    trash.push(axleGeometry, frameMaterial);
+
+    const blockGeometry = new BoxGeometry(0.42, 0.3, 0.54);
+    const blockMaterial = new MeshStandardMaterial({
+      color: hex,
+      roughness: 0.35,
+      metalness: 0.12,
+      emissive: hex,
+      emissiveIntensity: 0.22,
+    });
+    const block = new Mesh(blockGeometry, blockMaterial);
+    block.position.y = CHARIOT_BLOCK_Y;
+    block.castShadow = true;
+    group.add(block);
+    trash.push(blockGeometry, blockMaterial);
+
+    // Axis along X, so the wheels spin by rotating about their own local X.
+    const wheelGeometry = new CylinderGeometry(
+      CHARIOT_WHEEL_RADIUS,
+      CHARIOT_WHEEL_RADIUS,
+      0.08,
+      20,
+    );
+    wheelGeometry.rotateZ(Math.PI / 2);
+    const wheelMaterial = new MeshStandardMaterial({
+      color: 0x1b2437,
+      roughness: 0.5,
+      metalness: 0.4,
+    });
+    const rimGeometry = new TorusGeometry(CHARIOT_WHEEL_RADIUS, 0.045, 8, 24);
+    rimGeometry.rotateY(Math.PI / 2);
+    const rimMaterial = new MeshStandardMaterial({
+      color: 0xb9c8e4,
+      roughness: 0.3,
+      metalness: 0.75,
+    });
+    const spokeGeometry = new BoxGeometry(0.09, CHARIOT_WHEEL_RADIUS * 1.7, 0.05);
+    trash.push(wheelGeometry, wheelMaterial, rimGeometry, rimMaterial, spokeGeometry);
+
+    const wheels = [-1, 1].map((side) => {
+      const wheel = new Mesh(wheelGeometry, wheelMaterial);
+      wheel.position.set(side * 0.31, CHARIOT_WHEEL_RADIUS, 0);
+      wheel.castShadow = true;
+      wheel.add(new Mesh(rimGeometry, rimMaterial));
+      for (const angle of [0, Math.PI / 2]) {
+        const spoke = new Mesh(spokeGeometry, rimMaterial);
+        spoke.rotation.x = angle;
+        wheel.add(spoke);
+      }
+      group.add(wheel);
+      return wheel;
+    });
+
+    this.board.add(group);
+    this.chariotView = { group, block, wheels, trash };
+    this.syncChariot();
+  }
+
+  private syncChariot(): void {
+    const view = this.chariotView;
+    if (!view) return;
+    const cell = this.engine.chariot.cell;
+    view.group.position.copy(this.worldPosition(cell.x, cell.z));
+    view.block.position.y = CHARIOT_BLOCK_Y;
+  }
+
+  /** Rolls the chariot to its new square, then slams the block if it landed on its colour. */
+  private playChariot(move: ChariotMove): void {
+    const view = this.chariotView;
+    if (!view) return;
+
+    const from = this.worldPosition(move.from.x, move.from.z);
+    const to = this.worldPosition(move.to.x, move.to.z);
+    if (!from.equals(to)) view.group.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+    view.group.position.copy(from);
+    view.block.position.y = CHARIOT_BLOCK_Y;
+    this.chariotAnim = { from, to, crushed: move.crushed, phase: 'roll', applied: false, t: 0 };
+  }
+
+  private updateChariot(dt: number): void {
+    const anim = this.chariotAnim;
+    const view = this.chariotView;
+    if (!anim || !view) return;
+
+    if (anim.phase === 'roll') {
+      anim.t = Math.min(1, anim.t + dt / CHARIOT_ROLL_SECONDS);
+      view.group.position.lerpVectors(anim.from, anim.to, easeInOutQuad(anim.t));
+      const rolled = (anim.from.distanceTo(anim.to) * dt) / CHARIOT_ROLL_SECONDS;
+      for (const wheel of view.wheels) wheel.rotation.x += rolled / CHARIOT_WHEEL_RADIUS;
+
+      if (anim.t < 1) return;
+      view.group.position.copy(anim.to);
+      if (!anim.crushed) {
+        this.chariotAnim = null;
+        return;
+      }
+      anim.phase = 'slam';
+      anim.t = 0;
+      return;
+    }
+
+    anim.t = Math.min(1, anim.t + dt / CHARIOT_SLAM_SECONDS);
+    view.block.position.y = CHARIOT_BLOCK_Y - Math.sin(anim.t * Math.PI) * (CHARIOT_BLOCK_Y - 0.1);
+
+    if (!anim.applied && anim.t >= 0.5) {
+      anim.applied = true;
+      const cell = anim.crushed!;
+      const index = this.engine.index(cell.x, cell.z);
+      // A spawn may have reclaimed the square in the meantime; leave that colour alone.
+      if (this.engine.tiles[index] === NEUTRAL) this.setTileColor(index, NEUTRAL, false, true);
+      this.fireBeam(cell, colorHex(this.engine.chariot.color));
+      this.refreshHints();
+    }
+
+    if (anim.t < 1) return;
+    view.block.position.y = CHARIOT_BLOCK_Y;
+    this.chariotAnim = null;
   }
 
   private clearEventViews(): void {
@@ -1041,6 +1266,7 @@ export class GameRenderer {
 
     this.updateRoll(dt);
     this.updateTeleport(dt);
+    this.updateChariot(dt);
     this.updateBump(dt);
     this.updateSpin(dt);
     this.updateAzimuth(dt);
@@ -1064,7 +1290,7 @@ export class GameRenderer {
 
     this.roll = null;
     const outcome = roll.outcome;
-    // The engine already walked the cube through the gateway; show the landing cell first.
+    // The engine already walked the cube through the portal; show the landing cell first.
     this.placeCube(outcome.teleportedTo ? outcome.to : this.engine.cube);
 
     if (outcome.neutralized) {
@@ -1079,15 +1305,18 @@ export class GameRenderer {
     this.syncEvents();
     this.refreshHints();
 
+    if (outcome.chariot) this.playChariot(outcome.chariot);
+
     if (outcome.teleportedTo) {
-      this.fireBeam(outcome.to, GATEWAY_HEX);
+      this.fireBeam(outcome.to, PORTAL_HEX);
       this.teleport = { to: outcome.teleportedTo, done: roll.done, phase: 'out', t: 0 };
       return;
     }
+    this.syncPortal();
     roll.done();
   }
 
-  /** Shrinks the cube away at the gateway it entered and pops it out of the far end. */
+  /** Shrinks the cube away at the portal it entered and pops it out of the far corner. */
   private updateTeleport(dt: number): void {
     const teleport = this.teleport;
     if (!teleport) return;
@@ -1103,7 +1332,8 @@ export class GameRenderer {
       teleport.t = 0;
       this.placeCube(teleport.to);
       this.cubeRoot.scale.setScalar(0);
-      this.fireBeam(teleport.to, GATEWAY_HEX);
+      this.syncPortal();
+      this.fireBeam(teleport.to, PORTAL_HEX);
       return;
     }
 
@@ -1192,7 +1422,9 @@ export class GameRenderer {
   private updateProjection(): void {
     const aspect = this.aspect;
     // Half the board's diagonal, which is its widest span on screen in isometric.
-    const reach = ((this.engine.size * TILE) / 2) * Math.SQRT2;
+    // Corner portals sit one square outside, so their tile has to fit too.
+    const span = (this.engine.size * TILE) / 2;
+    const reach = this.engine.cornerPortals ? Math.hypot(span + TILE, span) : span * Math.SQRT2;
     const needHalfWidth = reach;
     const needHalfHeight =
       reach * Math.sin(ELEVATION) + ((SCENE_TOP - SCENE_BOTTOM) / 2) * Math.cos(ELEVATION);
@@ -1308,12 +1540,23 @@ export class GameRenderer {
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObjects(this.tileGroups, true)[0];
+    const pickable = this.portalView
+      ? [...this.tileGroups, this.portalView.group]
+      : this.tileGroups;
+    const hit = this.raycaster.intersectObjects(pickable, true)[0];
     if (!hit) return;
 
     let node: Object3D | null = hit.object;
-    while (node && node.userData['index'] === undefined) node = node.parent;
+    while (node && node.userData['index'] === undefined && node.userData['cell'] === undefined) {
+      node = node.parent;
+    }
     if (!node) return;
+
+    const portalCell = node.userData['cell'] as Cell | undefined;
+    if (portalCell) {
+      this.onTileSelect(portalCell);
+      return;
+    }
 
     const index = node.userData['index'] as number;
     this.onTileSelect({ x: index % this.engine.size, z: Math.floor(index / this.engine.size) });

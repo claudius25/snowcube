@@ -18,7 +18,6 @@ const BEST_SCORE_KEY = 'snowcube.best';
 
 const EVENT_LABELS: Readonly<Record<GameEvent['kind'], string>> = {
   wall: 'Wall',
-  gateway: 'Gateway',
 };
 
 @Component({

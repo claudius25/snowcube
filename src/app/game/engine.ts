@@ -1,4 +1,5 @@
 import { Quaternion, Vector3 } from 'three';
+import { Chariot, ChariotMove } from './chariot';
 import { COLORS } from './colors';
 import { EVENT_INTERVAL, EventDirector } from './events';
 
@@ -59,12 +60,14 @@ export interface MoveOutcome {
   readonly direction: Direction;
   readonly from: Cell;
   readonly to: Cell;
-  /** Cell the gateway threw the cube to, when `to` held one. */
+  /** Corner the portal threw the cube to, when `to` was the portal tile. */
   readonly teleportedTo: Cell | null;
   readonly landingColor: number;
   readonly neutralized: boolean;
   readonly gained: number;
   readonly spawned: SpawnedTile | null;
+  /** The helper's turn, taken right after the cube's. */
+  readonly chariot: ChariotMove | null;
   readonly gameOver: boolean;
 }
 
@@ -74,8 +77,12 @@ export interface GameOptions {
   spawnInterval: number;
   /** Tiles already coloured when the game starts. */
   seedTiles: number;
-  /** A board event (wall / gateway) starts every N moves. */
+  /** A board event (wall) starts every N moves. */
   eventInterval: number;
+  /** Reaching a corner offers a portal tile just outside the board. */
+  cornerPortals: boolean;
+  /** The colour-hunting helper cart rides along. */
+  chariot: boolean;
 }
 
 export const DEFAULT_OPTIONS: GameOptions = {
@@ -83,6 +90,8 @@ export const DEFAULT_OPTIONS: GameOptions = {
   spawnInterval: 1,
   seedTiles: 3,
   eventInterval: EVENT_INTERVAL,
+  cornerPortals: true,
+  chariot: true,
 };
 
 /**
@@ -94,8 +103,13 @@ export class GameEngine {
   size = DEFAULT_OPTIONS.size;
   spawnInterval = DEFAULT_OPTIONS.spawnInterval;
   seedTiles = DEFAULT_OPTIONS.seedTiles;
+  cornerPortals = DEFAULT_OPTIONS.cornerPortals;
 
   readonly events = new EventDirector();
+  readonly chariot = new Chariot();
+
+  /** Tile standing just outside the board while the cube sits on a corner. */
+  portal: Cell | null = null;
 
   tiles: number[] = [];
   cube: Cell = { x: 0, z: 0 };
@@ -118,6 +132,8 @@ export class GameEngine {
     this.size = options.size ?? this.size;
     this.spawnInterval = options.spawnInterval ?? this.spawnInterval;
     this.seedTiles = options.seedTiles ?? this.seedTiles;
+    this.cornerPortals = options.cornerPortals ?? this.cornerPortals;
+    this.chariot.enabled = options.chariot ?? this.chariot.enabled;
     this.events.interval = options.eventInterval ?? this.events.interval;
     this.events.reset();
 
@@ -125,6 +141,8 @@ export class GameEngine {
     const middle = Math.floor((this.size - 1) / 2);
     this.cube = { x: middle, z: middle };
     this.rotation.identity();
+    this.chariot.reset(this.size, Math.floor(Math.random() * COLORS.length), this.cube);
+    this.portal = null;
 
     this.score = 0;
     this.moves = 0;
@@ -149,6 +167,29 @@ export class GameEngine {
 
   tileAt(x: number, z: number): number {
     return this.inBounds(x, z) ? this.tiles[this.index(x, z)] : NEUTRAL;
+  }
+
+  isPortal(cell: Cell): boolean {
+    return this.portal !== null && this.portal.x === cell.x && this.portal.z === cell.z;
+  }
+
+  /** True when a wall stands between two orthogonally adjacent cells. */
+  blocked(from: Cell, to: Cell): boolean {
+    return this.events.blocks(from, to);
+  }
+
+  /** Portal tile offered by a corner: one square outside the board, beside that corner. */
+  private portalFor(cell: Cell): Cell | null {
+    if (!this.cornerPortals) return null;
+    const last = this.size - 1;
+    if ((cell.x !== 0 && cell.x !== last) || (cell.z !== 0 && cell.z !== last)) return null;
+    return { x: cell.x === 0 ? -1 : this.size, z: cell.z };
+  }
+
+  /** Corner facing the one that owns `portal`, across both diagonals. */
+  private oppositeCorner(portal: Cell): Cell {
+    const last = this.size - 1;
+    return { x: portal.x < 0 ? last : 0, z: last - portal.z };
   }
 
   get coloredCount(): number {
@@ -189,10 +230,13 @@ export class GameEngine {
   preview(direction: Direction): Preview {
     const v = DIRECTION_VECTORS[direction];
     const cell: Cell = { x: this.cube.x + v.x, z: this.cube.z + v.z };
+    const onBoard = this.inBounds(cell.x, cell.z);
     const legal =
-      !this.gameOver && this.inBounds(cell.x, cell.z) && !this.events.blocks(this.cube, cell);
+      !this.gameOver &&
+      (onBoard || this.isPortal(cell)) &&
+      !this.events.blocks(this.cube, cell);
     const landingColor = this.colorTowards(v);
-    const tile = legal ? this.tileAt(cell.x, cell.z) : NEUTRAL;
+    const tile = legal && onBoard ? this.tileAt(cell.x, cell.z) : NEUTRAL;
     return {
       direction,
       legal,
@@ -219,7 +263,8 @@ export class GameEngine {
     const v = DIRECTION_VECTORS[direction];
     const from = this.cube;
     const to: Cell = { x: from.x + v.x, z: from.z + v.z };
-    if (!this.inBounds(to.x, to.z)) return null;
+    const intoPortal = this.isPortal(to);
+    if (!intoPortal && !this.inBounds(to.x, to.z)) return null;
     if (this.events.blocks(from, to)) return null;
 
     const axis = new Vector3().crossVectors(UP, v).normalize();
@@ -228,8 +273,8 @@ export class GameEngine {
     this.moves++;
 
     const landingColor = this.bottomColor;
-    const idx = this.index(to.x, to.z);
-    const neutralized = this.tiles[idx] === landingColor;
+    const idx = intoPortal ? -1 : this.index(to.x, to.z);
+    const neutralized = !intoPortal && this.tiles[idx] === landingColor;
     let gained = 0;
 
     if (neutralized) {
@@ -243,9 +288,17 @@ export class GameEngine {
       this.streak = 0;
     }
 
-    // The gateway only transports: the roll already resolved the tile it entered.
-    const teleportedTo = this.events.exitFor(to);
+    // The portal only transports: the roll already resolved the tile it entered.
+    const teleportedTo = intoPortal ? this.oppositeCorner(to) : null;
     if (teleportedTo) this.cube = teleportedTo;
+
+    // The helper takes its turn before the spawn, so a crush can keep the board alive.
+    const chariot = this.chariot.step(this);
+    if (chariot?.crushed) {
+      this.tiles[this.index(chariot.crushed.x, chariot.crushed.z)] = NEUTRAL;
+      this.score++;
+      this.neutralized++;
+    }
 
     // A match buys the player that move: nothing new is coloured.
     let spawned: SpawnedTile | null = null;
@@ -258,6 +311,8 @@ export class GameEngine {
     }
 
     this.events.advance(this.size, this.cube);
+    // A used portal is spent; the arrival corner only re-arms once the cube returns to it.
+    this.portal = teleportedTo ? null : this.portalFor(this.cube);
 
     return {
       direction,
@@ -268,6 +323,7 @@ export class GameEngine {
       neutralized,
       gained,
       spawned,
+      chariot,
       gameOver: this.gameOver,
     };
   }

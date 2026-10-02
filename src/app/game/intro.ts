@@ -72,6 +72,8 @@ export class Intro implements AfterViewInit, OnDestroy {
     seedTiles: 0,
     spawnInterval: NO_SPAWN,
     eventInterval: NO_EVENTS,
+    cornerPortals: false,
+    chariot: false,
   });
   private renderer?: GameRenderer;
   private target: Cell | null = null;

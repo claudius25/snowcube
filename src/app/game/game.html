@@ -30,11 +30,11 @@
           </div>
         }
       </div>
-
-      @for (entry of quote(); track entry.id) {
-        <p class="quote">{{ entry.quote }}</p>
-      }
     </div>
+
+    @for (entry of quote(); track entry.id) {
+      <p class="quote">{{ entry.quote }}</p>
+    }
 
     @if (gameOver()) {
       <div class="overlay">
