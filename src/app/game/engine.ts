@@ -1,5 +1,6 @@
 import { Quaternion, Vector3 } from 'three';
 import { COLORS } from './colors';
+import { EVENT_INTERVAL, EventDirector } from './events';
 
 /** Edge length of a tile — the cube is exactly the same size. */
 export const TILE = 1;
@@ -58,6 +59,8 @@ export interface MoveOutcome {
   readonly direction: Direction;
   readonly from: Cell;
   readonly to: Cell;
+  /** Cell the gateway threw the cube to, when `to` held one. */
+  readonly teleportedTo: Cell | null;
   readonly landingColor: number;
   readonly neutralized: boolean;
   readonly gained: number;
@@ -71,9 +74,16 @@ export interface GameOptions {
   spawnInterval: number;
   /** Tiles already coloured when the game starts. */
   seedTiles: number;
+  /** A board event (wall / gateway) starts every N moves. */
+  eventInterval: number;
 }
 
-export const DEFAULT_OPTIONS: GameOptions = { size: 6, spawnInterval: 1, seedTiles: 3 };
+export const DEFAULT_OPTIONS: GameOptions = {
+  size: 6,
+  spawnInterval: 1,
+  seedTiles: 3,
+  eventInterval: EVENT_INTERVAL,
+};
 
 /**
  * Pure game state: the board, the cube's cell and its orientation.
@@ -84,6 +94,8 @@ export class GameEngine {
   size = DEFAULT_OPTIONS.size;
   spawnInterval = DEFAULT_OPTIONS.spawnInterval;
   seedTiles = DEFAULT_OPTIONS.seedTiles;
+
+  readonly events = new EventDirector();
 
   tiles: number[] = [];
   cube: Cell = { x: 0, z: 0 };
@@ -106,6 +118,8 @@ export class GameEngine {
     this.size = options.size ?? this.size;
     this.spawnInterval = options.spawnInterval ?? this.spawnInterval;
     this.seedTiles = options.seedTiles ?? this.seedTiles;
+    this.events.interval = options.eventInterval ?? this.events.interval;
+    this.events.reset();
 
     this.tiles = new Array<number>(this.size * this.size).fill(NEUTRAL);
     const middle = Math.floor((this.size - 1) / 2);
@@ -175,7 +189,8 @@ export class GameEngine {
   preview(direction: Direction): Preview {
     const v = DIRECTION_VECTORS[direction];
     const cell: Cell = { x: this.cube.x + v.x, z: this.cube.z + v.z };
-    const legal = !this.gameOver && this.inBounds(cell.x, cell.z);
+    const legal =
+      !this.gameOver && this.inBounds(cell.x, cell.z) && !this.events.blocks(this.cube, cell);
     const landingColor = this.colorTowards(v);
     const tile = legal ? this.tileAt(cell.x, cell.z) : NEUTRAL;
     return {
@@ -205,6 +220,7 @@ export class GameEngine {
     const from = this.cube;
     const to: Cell = { x: from.x + v.x, z: from.z + v.z };
     if (!this.inBounds(to.x, to.z)) return null;
+    if (this.events.blocks(from, to)) return null;
 
     const axis = new Vector3().crossVectors(UP, v).normalize();
     this.rotation.premultiply(new Quaternion().setFromAxisAngle(axis, Math.PI / 2)).normalize();
@@ -227,6 +243,10 @@ export class GameEngine {
       this.streak = 0;
     }
 
+    // The gateway only transports: the roll already resolved the tile it entered.
+    const teleportedTo = this.events.exitFor(to);
+    if (teleportedTo) this.cube = teleportedTo;
+
     // A match buys the player that move: nothing new is coloured.
     let spawned: SpawnedTile | null = null;
     if (neutralized) {
@@ -237,10 +257,13 @@ export class GameEngine {
       if (!spawned) this.gameOver = true;
     }
 
+    this.events.advance(this.size, this.cube);
+
     return {
       direction,
       from,
       to,
+      teleportedTo,
       landingColor,
       neutralized,
       gained,

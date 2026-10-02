@@ -11,16 +11,17 @@ import {
 } from '@angular/core';
 import { COLORS } from './colors';
 import { Cell, DIRECTIONS, Direction, GameEngine, MoveOutcome, NEUTRAL } from './engine';
+import { NO_EVENTS } from './events';
 import { GameRenderer } from './renderer';
 
 /** Large enough that the scripted intro never triggers a spawn. */
 const NO_SPAWN = Number.MAX_SAFE_INTEGER;
 /** How long the hand sits on a tile before the cube rolls, unless tapped sooner. */
-const HAND_SECONDS = 1.5;
+const HAND_SECONDS = 0.85;
 /** Demonstrated camera orbit: a quarter turn, slow enough to read. */
 const SPIN_SECONDS = 2.2;
-const INTRO_BOARD = 2;
-const PLAY_BOARD = 3;
+/** One board for the whole script, so the scene never cuts. */
+const BOARD = 3;
 /** Colour swaps demonstrated in the second chapter. */
 const MATCH_DEMOS = 3;
 
@@ -67,9 +68,10 @@ export class Intro implements AfterViewInit, OnDestroy {
   readonly finished = computed(() => this.chapter() === CHAPTERS.length - 1);
 
   private readonly engine = new GameEngine({
-    size: INTRO_BOARD,
+    size: BOARD,
     seedTiles: 0,
     spawnInterval: NO_SPAWN,
+    eventInterval: NO_EVENTS,
   });
   private renderer?: GameRenderer;
   private target: Cell | null = null;
@@ -116,10 +118,8 @@ export class Intro implements AfterViewInit, OnDestroy {
     if (this.stopped) return;
 
     this.chapter.set(1);
-    this.engine.reset({ size: PLAY_BOARD, seedTiles: 0, spawnInterval: NO_SPAWN });
-    this.renderer?.rebuild();
     this.scatter(2);
-    await this.wait(900);
+    await this.wait(700);
     if (this.stopped) return;
 
     for (let i = 0; i < MATCH_DEMOS; i++) {

@@ -85,13 +85,43 @@
   left: 50%;
   transform: translateX(-50%);
   width: min(520px, calc(100% - 32px));
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(13, 20, 36, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(8px);
   // The board is dragged to rotate; the HUD must not swallow those pointers.
   pointer-events: none;
+
+  &__panel {
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(13, 20, 36, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(8px);
+  }
+}
+
+.quote {
+  margin: 14px auto 0;
+  max-width: 42ch;
+  text-align: center;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.5;
+  color: #b9c7e0;
+  text-shadow: 0 2px 10px rgba(5, 9, 18, 0.9);
+  animation: quote-in 0.6s ease;
+
+  &::before {
+    content: '\201C';
+  }
+
+  &::after {
+    content: '\201D';
+  }
+}
+
+@keyframes quote-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .stats {
@@ -121,50 +151,48 @@
   }
 }
 
-.timeline {
+.events {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
   margin-top: 12px;
+}
 
-  &__head {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: #7f8ea8;
-    margin-bottom: 6px;
+.event {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid transparent;
+  animation: event-in 0.35s ease;
+
+  strong {
+    font-size: 13px;
+    letter-spacing: 0;
   }
 
-  // Newest turn sits at the right edge; older ones overflow and fade out to the left.
-  &__track {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    height: 20px;
-    overflow: hidden;
-    mask-image: linear-gradient(90deg, transparent 0, #000 22%);
+  &--wall {
+    background: rgba(6, 9, 16, 0.9);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #d7dfee;
+  }
+
+  &--gateway {
+    background: linear-gradient(90deg, #ff4d6d33, #ffd16633, #4dd4ff33, #a56bff33);
+    border-color: rgba(160, 210, 255, 0.45);
+    color: #e6f2ff;
   }
 }
 
-.turn {
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  margin-left: 8px;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  box-sizing: content-box;
-  animation: turn-in 0.32s ease;
-
-  &--matched {
-    border-color: #ffffff;
-    box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
-  }
-}
-
-@keyframes turn-in {
+@keyframes event-in {
   from {
-    width: 0;
-    margin-left: 0;
-    border-width: 0;
     opacity: 0;
+    transform: scale(0.85);
   }
 }
 
@@ -187,7 +215,15 @@ button.primary {
 @media (max-width: 900px) {
   .hud {
     top: 10px;
-    padding: 10px;
+
+    &__panel {
+      padding: 10px;
+    }
+  }
+
+  .quote {
+    margin-top: 10px;
+    font-size: 16px;
   }
 
   .stat strong {

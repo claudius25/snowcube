@@ -1,0 +1,42 @@
+newmtl ice
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/ice_basecolor.png
+
+newmtl orange
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/orange_basecolor.png
+
+newmtl yellow
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/yellow_basecolor.png
+
+newmtl red
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/red_basecolor.png
+
+newmtl green
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/green_basecolor.png
+
+newmtl blue
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/blue_basecolor.png
+
+newmtl purple
+Kd 1 1 1
+Ks 0.8 0.8 0.8
+Ns 160
+map_Kd textures/purple_basecolor.png
+

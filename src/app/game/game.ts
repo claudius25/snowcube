@@ -5,26 +5,21 @@ import {
   ElementRef,
   HostListener,
   OnDestroy,
+  inject,
   signal,
   viewChild,
 } from '@angular/core';
-import { colorCss } from './colors';
-import { Cell, Direction, GameEngine, MoveOutcome } from './engine';
+import { Cell, Direction, GameEngine } from './engine';
+import { GameEvent } from './events';
+import { Quotes } from './quotes';
 import { GameRenderer, ScreenKey } from './renderer';
 
 const BEST_SCORE_KEY = 'snowcube.best';
 
-/** Circles shown before the first move, so the track starts right-aligned and full. */
-const TIMELINE_OPENING = 3;
-/** The track clips long before this; it only caps how much history we keep. */
-const TIMELINE_MAX = 32;
-
-export interface Turn {
-  readonly id: number;
-  /** Colour that appeared on this turn, or null when nothing was coloured. */
-  readonly color: number | null;
-  readonly matched: boolean;
-}
+const EVENT_LABELS: Readonly<Record<GameEvent['kind'], string>> = {
+  wall: 'Wall',
+  gateway: 'Gateway',
+};
 
 @Component({
   selector: 'app-game',
@@ -35,10 +30,11 @@ export interface Turn {
 export class Game implements AfterViewInit, OnDestroy {
   private readonly canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
 
+  readonly quote = inject(Quotes).current;
+
   private readonly engine = new GameEngine();
   private renderer?: GameRenderer;
   private queued: Direction | null = null;
-  private turnId = 0;
 
   readonly score = signal(0);
   readonly moves = signal(0);
@@ -47,7 +43,7 @@ export class Game implements AfterViewInit, OnDestroy {
   readonly cleared = signal(0);
   readonly gameOver = signal(false);
   readonly best = signal(this.loadBest());
-  readonly turns = signal<readonly Turn[]>(this.openingTurns());
+  readonly events = signal<readonly GameEvent[]>([]);
 
   ngAfterViewInit(): void {
     this.renderer = new GameRenderer(this.canvasRef().nativeElement, this.engine);
@@ -72,7 +68,6 @@ export class Game implements AfterViewInit, OnDestroy {
       return;
     }
     this.renderer?.playMove(outcome, () => {
-      this.recordTurn(outcome);
       this.sync();
       const next = this.queued;
       this.queued = null;
@@ -81,15 +76,12 @@ export class Game implements AfterViewInit, OnDestroy {
     this.moves.set(this.engine.moves);
   }
 
-  /** Fill for a turn circle; the opening slots have no colour yet. */
-  turnFill(turn: Turn): string {
-    return turn.color === null ? 'rgba(255, 255, 255, 0.1)' : colorCss(turn.color);
+  eventLabel(event: GameEvent): string {
+    return EVENT_LABELS[event.kind];
   }
 
   restart(): void {
     this.queued = null;
-    this.turnId = 0;
-    this.turns.set(this.openingTurns());
     this.engine.reset();
     this.renderer?.rebuild();
     this.sync();
@@ -145,24 +137,6 @@ export class Game implements AfterViewInit, OnDestroy {
     else this.move('north');
   }
 
-  private openingTurns(): Turn[] {
-    return Array.from({ length: TIMELINE_OPENING }, () => ({
-      id: this.turnId++,
-      color: null,
-      matched: false,
-    }));
-  }
-
-  private recordTurn(outcome: MoveOutcome): void {
-    // A match clears instead of spawning, so that turn shows the colour it chased away.
-    const turn: Turn = {
-      id: this.turnId++,
-      color: outcome.spawned?.color ?? (outcome.neutralized ? outcome.landingColor : null),
-      matched: outcome.neutralized,
-    };
-    this.turns.update((list) => [...list, turn].slice(-TIMELINE_MAX));
-  }
-
   private sync(): void {
     this.score.set(this.engine.score);
     this.moves.set(this.engine.moves);
@@ -170,6 +144,8 @@ export class Game implements AfterViewInit, OnDestroy {
     this.bestStreak.set(this.engine.bestStreak);
     this.cleared.set(this.engine.neutralized);
     this.gameOver.set(this.engine.gameOver);
+    // A fresh array so the signal sees the change; the director mutates in place.
+    this.events.set([...this.engine.events.active]);
 
     if (this.engine.score > this.best()) {
       this.best.set(this.engine.score);

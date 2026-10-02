@@ -3,36 +3,37 @@
     <canvas #canvas></canvas>
 
     <div class="hud">
-      <div class="stats">
-        <div class="stat">
-          <span>Score</span><strong>{{ score() }}</strong>
+      <div class="hud__panel">
+        <div class="stats">
+          <div class="stat">
+            <span>Score</span><strong>{{ score() }}</strong>
+          </div>
+          <div class="stat">
+            <span>Best</span><strong>{{ best() }}</strong>
+          </div>
+          <div class="stat">
+            <span>Moves</span><strong>{{ moves() }}</strong>
+          </div>
+          <div class="stat">
+            <span>Streak</span><strong>&times;{{ streak() }}</strong>
+          </div>
         </div>
-        <div class="stat">
-          <span>Best</span><strong>{{ best() }}</strong>
-        </div>
-        <div class="stat">
-          <span>Moves</span><strong>{{ moves() }}</strong>
-        </div>
-        <div class="stat">
-          <span>Streak</span><strong>&times;{{ streak() }}</strong>
-        </div>
+
+        @if (events().length) {
+          <div class="events">
+            @for (event of events(); track event.id) {
+              <span class="event" [class]="'event--' + event.kind">
+                {{ eventLabel(event) }}
+                <strong>{{ event.movesLeft }}</strong>
+              </span>
+            }
+          </div>
+        }
       </div>
 
-      <div class="timeline">
-        <div class="timeline__head">
-          <span>Timeline</span>
-          <span>Turn {{ moves() }}</span>
-        </div>
-        <div class="timeline__track">
-          @for (turn of turns(); track turn.id) {
-            <span
-              class="turn"
-              [class.turn--matched]="turn.matched"
-              [style.background]="turnFill(turn)"
-            ></span>
-          }
-        </div>
-      </div>
+      @for (entry of quote(); track entry.id) {
+        <p class="quote">{{ entry.quote }}</p>
+      }
     </div>
 
     @if (gameOver()) {

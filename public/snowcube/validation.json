@@ -1,11 +1,13 @@
 {
   "parts": 7,
-  "triangles": 127076,
-  "frame_outer_size": 2,
-  "face_opening": 1.54,
+  "triangles": 81144,
+  "outer_frame": false,
+  "hub_diameter": 0.29,
+  "stem_diameter": 0.12,
+  "stem_length": 0.88,
   "panel_width": 1.26,
   "panel_thickness": 0.12,
-  "gap_each_side": 0.14,
+  "panel_center_distance": 0.92,
   "valid_solids": true,
-  "glb_bytes": 17993952
+  "glb_bytes": 13302428
 }

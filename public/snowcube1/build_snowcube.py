@@ -22,13 +22,11 @@ save('ice_normal.png',normal(noise*.08+frost*.12,2.5))
 pr=np.clip(.16+.045*noise,.13,.23);save('panel_roughness.png',pr);save('panel_orm.png',np.stack([np.ones_like(pr),pr,np.zeros_like(pr)],-1));save('panel_normal.png',normal(noise*.005+frost*.007,1))
 colors={'orange':(1,.43,.018),'yellow':(1,.80,.01),'red':(.96,.013,.10),'green':(.24,.92,.009),'blue':(.018,.36,1),'purple':(.51,.018,.95)}
 for name,c in colors.items():save(name+'_basecolor.png',np.clip(np.array(c)[None,None,:]*(.96+.04*noise[:,:,None])+frost[:,:,None]*.025,0,1))
-# Compact central hub and six radial stems; no outer frame.
-frame=cq.Workplane('XY').sphere(.145)
-for axis in [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]:
- stem=cq.Solid.makeCylinder(.06,.88,cq.Vector(0,0,0),cq.Vector(*axis))
- frame=frame.union(cq.Workplane(obj=stem))
+frame=cq.Workplane('XY').box(2,2,2)
+for d in [(3,1.54,1.54),(1.54,3,1.54),(1.54,1.54,3)]:frame=frame.cut(cq.Workplane('XY').box(*d))
+frame=frame.edges().fillet(.085)
 panel=cq.Workplane('XY').box(1.26,1.26,.12).edges('|Z').fillet(.16).edges('not |Z').fillet(.045)
-parts=[('Ice_Central_Hub_And_Six_Stems',frame,'ice'),('Panel_Orange_Top',panel.translate((0,0,.92)),'orange'),('Panel_Purple_Bottom',panel.translate((0,0,-.92)),'purple'),('Panel_Yellow_Front',panel.rotate((0,0,0),(1,0,0),90).translate((0,-.92,0)),'yellow'),('Panel_Blue_Back',panel.rotate((0,0,0),(1,0,0),90).translate((0,.92,0)),'blue'),('Panel_Red_Right',panel.rotate((0,0,0),(0,1,0),90).translate((.92,0,0)),'red'),('Panel_Green_Left',panel.rotate((0,0,0),(0,1,0),90).translate((-.92,0,0)),'green')]
+parts=[('Ice_Frame',frame,'ice'),('Panel_Orange_Top',panel.translate((0,0,.92)),'orange'),('Panel_Purple_Bottom',panel.translate((0,0,-.92)),'purple'),('Panel_Yellow_Front',panel.rotate((0,0,0),(1,0,0),90).translate((0,-.92,0)),'yellow'),('Panel_Blue_Back',panel.rotate((0,0,0),(1,0,0),90).translate((0,.92,0)),'blue'),('Panel_Red_Right',panel.rotate((0,0,0),(0,1,0),90).translate((.92,0,0)),'red'),('Panel_Green_Left',panel.rotate((0,0,0),(0,1,0),90).translate((-.92,0,0)),'green')]
 assembly=cq.Assembly(name='Snowcube')
 meshes=[]
 for name,obj,mat in parts:
@@ -73,7 +71,7 @@ def texture(fn):
 matidx={}
 for mat in ['ice']+list(colors):
  matidx[mat]=len(g['materials']);prefix='ice' if mat=='ice' else 'panel'
- g['materials'].append({'name':'Icy_Glossy_Central_Support' if mat=='ice' else 'Glossy_'+mat.title(),'pbrMetallicRoughness':{'baseColorTexture':{'index':texture(mat+'_basecolor.png')},'metallicFactor':0,'roughnessFactor':1,'metallicRoughnessTexture':{'index':texture(prefix+'_orm.png')}},'normalTexture':{'index':texture(prefix+'_normal.png'),'scale':.45 if mat=='ice' else .18},'extensions':{'KHR_materials_clearcoat':{'clearcoatFactor':.5 if mat=='ice' else .9,'clearcoatRoughnessFactor':.12 if mat=='ice' else .08}}})
+ g['materials'].append({'name':'Icy_Glossy_Frame' if mat=='ice' else 'Glossy_'+mat.title(),'pbrMetallicRoughness':{'baseColorTexture':{'index':texture(mat+'_basecolor.png')},'metallicFactor':0,'roughnessFactor':1,'metallicRoughnessTexture':{'index':texture(prefix+'_orm.png')}},'normalTexture':{'index':texture(prefix+'_normal.png'),'scale':.45 if mat=='ice' else .18},'extensions':{'KHR_materials_clearcoat':{'clearcoatFactor':.5 if mat=='ice' else .9,'clearcoatRoughnessFactor':.12 if mat=='ice' else .08}}})
 for mesh in meshes:
  v=mesh['v'][:,[0,2,1]].copy();v[:,2]*=-1;n=mesh['n'][:,[0,2,1]].copy();n[:,2]*=-1
  attrs={'POSITION':accessor(v,'VEC3',5126),'NORMAL':accessor(n,'VEC3',5126),'TEXCOORD_0':accessor(mesh['uv'],'VEC2',5126)}
@@ -120,5 +118,5 @@ def render(filename,eye):
    image[ymin:ymax+1,xmin:xmax+1][mask]=shaded;depth[ymin:ymax+1,xmin:xmax+1][mask]=z[mask]
  Image.fromarray(np.uint8(np.clip(image,0,1)*255)).save(ROOT/filename)
 render('preview.png',(4,-6,4.6));render('preview-rear.png',(-4,6,4.6))
-report={'parts':len(meshes),'triangles':sum(len(m['f']) for m in meshes),'outer_frame':False,'hub_diameter':.29,'stem_diameter':.12,'stem_length':.88,'panel_width':1.26,'panel_thickness':.12,'panel_center_distance':.92,'valid_solids':all(o.val().isValid() for _,o,_ in parts),'glb_bytes':(ROOT/'snowcube.glb').stat().st_size}
+report={'parts':len(meshes),'triangles':sum(len(m['f']) for m in meshes),'frame_outer_size':2,'face_opening':1.54,'panel_width':1.26,'panel_thickness':.12,'gap_each_side':.14,'valid_solids':all(o.val().isValid() for _,o,_ in parts),'glb_bytes':(ROOT/'snowcube.glb').stat().st_size}
 (ROOT/'validation.json').write_text(json.dumps(report,indent=2));print(report,flush=True)

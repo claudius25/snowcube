@@ -1,0 +1,11 @@
+{
+  "parts": 7,
+  "triangles": 127076,
+  "frame_outer_size": 2,
+  "face_opening": 1.54,
+  "panel_width": 1.26,
+  "panel_thickness": 0.12,
+  "gap_each_side": 0.14,
+  "valid_solids": true,
+  "glb_bytes": 17993952
+}

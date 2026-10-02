@@ -21,9 +21,15 @@ import {
   OrthographicCamera,
   PCFShadowMap,
   Quaternion,
+  QuadraticBezierCurve3,
   Raycaster,
+  RepeatWrapping,
   Scene,
+  Sprite,
+  SpriteMaterial,
   Texture,
+  TorusGeometry,
+  TubeGeometry,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -42,6 +48,7 @@ import {
   TILE,
   UP,
 } from './engine';
+import { GatewayEvent, WallEvent } from './events';
 import { cellTexture, CUBE_ATLAS, loadAtlas } from './textures';
 
 const ROLL_SECONDS = 0.22;
@@ -55,6 +62,12 @@ const BEAM_SECONDS = 0.9;
 const BEAM_HEIGHT = 4.5;
 /** Enough beams for a streak to overlap without reusing one mid-flight. */
 const BEAM_POOL = 4;
+const TELEPORT_OUT_SECONDS = 0.18;
+const TELEPORT_IN_SECONDS = 0.26;
+const WALL_HEIGHT = 0.34;
+const WALL_THICKNESS = 0.06;
+/** Rainbow colour used for gateway flashes, since a gateway has no palette colour. */
+const GATEWAY_HEX = 0x9be8ff;
 const DEFAULT_AZIMUTH = Math.PI / 4;
 /** Seconds for the camera to close most of the gap to the dragged angle. */
 const CAMERA_EASE = 0.11;
@@ -159,6 +172,26 @@ interface BeamView {
   life: number;
 }
 
+interface EventView {
+  readonly id: number;
+  readonly group: Group;
+  readonly labelMaterial: SpriteMaterial;
+  readonly label: Sprite;
+  /** Resting height of the countdown; it bobs around this. */
+  readonly labelY: number;
+  /** Gateway end rings; they pulse every frame. */
+  readonly rings: Object3D[];
+  readonly trash: (BufferGeometry | Material)[];
+  movesLeft: number;
+}
+
+interface TeleportState {
+  readonly to: Cell;
+  readonly done: () => void;
+  phase: 'out' | 'in';
+  t: number;
+}
+
 function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
@@ -185,6 +218,41 @@ function createBeamTexture(): CanvasTexture {
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
+}
+
+/** One hue sweep, tiled along the gateway arc and scrolled for the shimmer. */
+function createRainbowTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d')!;
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  for (let i = 0; i <= 6; i++) gradient.addColorStop(i / 6, `hsl(${i * 60}, 100%, 62%)`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new CanvasTexture(canvas);
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+  texture.repeat.set(3, 1);
+  return texture;
+}
+
+function createCountTexture(value: number): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.font = 'bold 92px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 12;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(6, 10, 20, 0.92)';
+  ctx.strokeText(String(value), 64, 70);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(String(value), 64, 70);
+  return new CanvasTexture(canvas);
 }
 
 /** Owns the three.js scene; reads state from the engine, never changes it. */
@@ -223,8 +291,13 @@ export class GameRenderer {
   private roll: RollState | null = null;
   private bump: BumpState | null = null;
   private spin: SpinState | null = null;
+  private teleport: TeleportState | null = null;
   private beams: BeamView[] = [];
   private beamTexture?: CanvasTexture;
+  private readonly eventsGroup = new Group();
+  private eventViews: EventView[] = [];
+  private rainbowTexture?: CanvasTexture;
+  private readonly countTextures = new Map<number, CanvasTexture>();
 
   private azimuth = DEFAULT_AZIMUTH;
   /** Where the drag wants the camera; `azimuth` chases this. */
@@ -251,7 +324,7 @@ export class GameRenderer {
   ) {}
 
   get busy(): boolean {
-    return this.roll !== null || this.bump !== null;
+    return this.roll !== null || this.bump !== null || this.teleport !== null;
   }
 
   mount(): void {
@@ -295,6 +368,9 @@ export class GameRenderer {
     this.clearBoard();
     this.cubeAtlas?.dispose();
     this.beamTexture?.dispose();
+    this.rainbowTexture?.dispose();
+    for (const texture of this.countTextures.values()) texture.dispose();
+    this.countTextures.clear();
     this.disposeModel();
     this.renderer?.dispose();
   }
@@ -303,6 +379,8 @@ export class GameRenderer {
   rebuild(): void {
     this.roll = null;
     this.bump = null;
+    this.teleport = null;
+    this.cubeRoot.scale.setScalar(1);
     this.build();
     this.resize();
   }
@@ -315,6 +393,7 @@ export class GameRenderer {
   /** Re-reads the tile colours from the engine, e.g. after a scripted setup. */
   refreshTiles(instant = false): void {
     this.syncTiles(instant);
+    this.syncEvents();
     this.refreshHints();
   }
 
@@ -546,6 +625,7 @@ export class GameRenderer {
     this.cubeRoot = new Group();
     this.cubeRoot.add(this.cube);
     this.board.add(this.cubeRoot);
+    this.board.add(this.eventsGroup);
     this.attachModel();
 
     this.buildBeams();
@@ -561,6 +641,7 @@ export class GameRenderer {
 
     this.syncTiles(true);
     this.syncCube();
+    this.syncEvents();
     this.refreshHints();
     this.applyAtlases();
   }
@@ -611,7 +692,7 @@ export class GameRenderer {
     }
   }
 
-  private fireBeam(cell: Cell, colorId: number): void {
+  private fireBeam(cell: Cell, hex: number): void {
     const beam =
       this.beams.find((candidate) => candidate.life <= 0) ??
       this.beams.reduce((oldest, candidate) => (candidate.life < oldest.life ? candidate : oldest));
@@ -620,7 +701,7 @@ export class GameRenderer {
     beam.mesh.position.copy(this.worldPosition(cell.x, cell.z));
     beam.mesh.rotation.y = Math.random() * Math.PI;
     beam.mesh.visible = true;
-    beam.material.color.setHex(colorHex(colorId));
+    beam.material.color.setHex(hex);
     beam.life = 1;
   }
 
@@ -640,7 +721,24 @@ export class GameRenderer {
     }
   }
 
+  private updateEvents(dt: number): void {
+    if (this.eventViews.length === 0) return;
+
+    if (this.rainbowTexture) this.rainbowTexture.offset.x -= dt * 0.28;
+    const pulse = 1 + 0.08 * Math.sin(this.elapsed * 4);
+    const bob = Math.sin(this.elapsed * 2.4) * 0.05;
+
+    for (const view of this.eventViews) {
+      view.label.position.y = view.labelY + bob;
+      for (const ring of view.rings) {
+        ring.scale.setScalar(pulse);
+        ring.rotation.z += dt * 0.8;
+      }
+    }
+  }
+
   private clearBoard(): void {
+    this.clearEventViews();
     for (const tile of this.tiles) {
       this.board.remove(tile.group);
       tile.padMaterial.dispose();
@@ -662,10 +760,175 @@ export class GameRenderer {
   }
 
   private syncCube(): void {
-    this.cubeRoot.position
-      .copy(this.worldPosition(this.engine.cube.x, this.engine.cube.z))
-      .setY(TILE / 2);
+    this.placeCube(this.engine.cube);
+  }
+
+  private placeCube(cell: Cell): void {
+    this.cubeRoot.position.copy(this.worldPosition(cell.x, cell.z)).setY(TILE / 2);
     this.cubeRoot.quaternion.copy(this.engine.rotation);
+  }
+
+  /** Adds, removes and re-labels the meshes for the currently running board events. */
+  private syncEvents(): void {
+    const active = this.engine.events.active;
+
+    for (let i = this.eventViews.length - 1; i >= 0; i--) {
+      const view = this.eventViews[i];
+      if (active.some((event) => event.id === view.id)) continue;
+      this.disposeEventView(view);
+      this.eventViews.splice(i, 1);
+    }
+
+    for (const event of active) {
+      let view = this.eventViews.find((candidate) => candidate.id === event.id);
+      if (!view) {
+        view = event.kind === 'wall' ? this.buildWallView(event) : this.buildGatewayView(event);
+        this.eventsGroup.add(view.group);
+        this.eventViews.push(view);
+      }
+      if (view.movesLeft === event.movesLeft) continue;
+      view.movesLeft = event.movesLeft;
+      view.labelMaterial.map = this.countTexture(event.movesLeft);
+      view.labelMaterial.needsUpdate = true;
+    }
+  }
+
+  private countTexture(value: number): CanvasTexture {
+    let texture = this.countTextures.get(value);
+    if (!texture) {
+      texture = createCountTexture(value);
+      this.countTextures.set(value, texture);
+    }
+    return texture;
+  }
+
+  /** Floating countdown that rides above an event and always faces the camera. */
+  private createLabel(position: Vector3, movesLeft: number): Sprite {
+    const material = new SpriteMaterial({
+      map: this.countTexture(movesLeft),
+      transparent: true,
+      depthTest: false,
+      toneMapped: false,
+    });
+    const sprite = new Sprite(material);
+    sprite.scale.setScalar(0.46);
+    sprite.position.copy(position);
+    sprite.renderOrder = 3;
+    return sprite;
+  }
+
+  private buildWallView(event: WallEvent): EventView {
+    const group = new Group();
+    const trash: (BufferGeometry | Material)[] = [];
+    const material = new MeshStandardMaterial({ color: 0x05070e, roughness: 0.45, metalness: 0.25 });
+    trash.push(material);
+
+    const centre = new Vector3();
+    for (const edge of event.edges) {
+      const vertical = edge.side === 'east';
+      const geometry = new BoxGeometry(
+        vertical ? WALL_THICKNESS : TILE,
+        WALL_HEIGHT,
+        vertical ? TILE : WALL_THICKNESS,
+      );
+      trash.push(geometry);
+
+      const mesh = new Mesh(geometry, material);
+      const here = this.worldPosition(edge.x, edge.z);
+      const there = this.worldPosition(vertical ? edge.x + 1 : edge.x, vertical ? edge.z : edge.z + 1);
+      mesh.position.copy(here).add(there).multiplyScalar(0.5).setY(WALL_HEIGHT / 2);
+      mesh.castShadow = true;
+      group.add(mesh);
+      centre.add(mesh.position);
+    }
+    centre.divideScalar(event.edges.length);
+
+    const label = this.createLabel(centre.setY(WALL_HEIGHT + 0.45), event.movesLeft);
+    group.add(label);
+    trash.push(label.material);
+
+    return {
+      id: event.id,
+      group,
+      label,
+      labelMaterial: label.material,
+      labelY: label.position.y,
+      rings: [],
+      trash,
+      movesLeft: event.movesLeft,
+    };
+  }
+
+  private buildGatewayView(event: GatewayEvent): EventView {
+    this.rainbowTexture ??= createRainbowTexture();
+    const group = new Group();
+    const trash: (BufferGeometry | Material)[] = [];
+
+    const a = this.worldPosition(event.a.x, event.a.z).setY(0.16);
+    const b = this.worldPosition(event.b.x, event.b.z).setY(0.16);
+    const apex = a
+      .clone()
+      .add(b)
+      .multiplyScalar(0.5)
+      .setY(0.65 + a.distanceTo(b) * 0.3);
+
+    // Additive blending washes a full-bright rainbow out to white, so this one blends normally.
+    const arcMaterial = new MeshBasicMaterial({
+      map: this.rainbowTexture,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      side: DoubleSide,
+      toneMapped: false,
+    });
+    const arcGeometry = new TubeGeometry(new QuadraticBezierCurve3(a, apex, b), 64, 0.08, 10, false);
+    group.add(new Mesh(arcGeometry, arcMaterial));
+    trash.push(arcGeometry, arcMaterial);
+
+    const ringGeometry = new TorusGeometry(0.4, 0.045, 10, 36);
+    const ringMaterial = new MeshBasicMaterial({
+      map: this.rainbowTexture,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    trash.push(ringGeometry, ringMaterial);
+
+    const rings = [a, b].map((end) => {
+      const ring = new Mesh(ringGeometry, ringMaterial);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(end).setY(0.06);
+      ring.renderOrder = 2;
+      group.add(ring);
+      return ring;
+    });
+
+    const label = this.createLabel(apex.clone().setY(apex.y + 0.34), event.movesLeft);
+    group.add(label);
+    trash.push(label.material);
+
+    return {
+      id: event.id,
+      group,
+      label,
+      labelMaterial: label.material,
+      labelY: label.position.y,
+      rings,
+      trash,
+      movesLeft: event.movesLeft,
+    };
+  }
+
+  private clearEventViews(): void {
+    for (const view of this.eventViews) this.disposeEventView(view);
+    this.eventViews = [];
+  }
+
+  /** Count textures are cached and shared, so only the per-view resources go. */
+  private disposeEventView(view: EventView): void {
+    this.eventsGroup.remove(view.group);
+    for (const item of view.trash) item.dispose();
   }
 
   private loadTileModels(): void {
@@ -777,10 +1040,12 @@ export class GameRenderer {
     this.elapsed += dt;
 
     this.updateRoll(dt);
+    this.updateTeleport(dt);
     this.updateBump(dt);
     this.updateSpin(dt);
     this.updateAzimuth(dt);
     this.updateTiles(dt);
+    this.updateEvents(dt);
     this.updateBeams(dt);
     this.renderer.render(this.scene, this.camera);
   };
@@ -798,20 +1063,61 @@ export class GameRenderer {
     if (roll.t < 1) return;
 
     this.roll = null;
-    this.syncCube();
-
     const outcome = roll.outcome;
+    // The engine already walked the cube through the gateway; show the landing cell first.
+    this.placeCube(outcome.teleportedTo ? outcome.to : this.engine.cube);
+
     if (outcome.neutralized) {
       this.setTileColor(this.engine.index(outcome.to.x, outcome.to.z), NEUTRAL, false, true);
       // A match means the tile's colour equalled the landing face.
-      this.fireBeam(outcome.to, outcome.landingColor);
+      this.fireBeam(outcome.to, colorHex(outcome.landingColor));
     }
     if (outcome.spawned) {
       const spawned = outcome.spawned;
       this.setTileColor(this.engine.index(spawned.x, spawned.z), spawned.color, false, true);
     }
+    this.syncEvents();
     this.refreshHints();
+
+    if (outcome.teleportedTo) {
+      this.fireBeam(outcome.to, GATEWAY_HEX);
+      this.teleport = { to: outcome.teleportedTo, done: roll.done, phase: 'out', t: 0 };
+      return;
+    }
     roll.done();
+  }
+
+  /** Shrinks the cube away at the gateway it entered and pops it out of the far end. */
+  private updateTeleport(dt: number): void {
+    const teleport = this.teleport;
+    if (!teleport) return;
+
+    if (teleport.phase === 'out') {
+      teleport.t = Math.min(1, teleport.t + dt / TELEPORT_OUT_SECONDS);
+      const scale = 1 - easeInOutQuad(teleport.t);
+      this.cubeRoot.scale.setScalar(scale);
+      this.cubeRoot.position.y = TILE / 2 + (1 - scale) * 0.55;
+
+      if (teleport.t < 1) return;
+      teleport.phase = 'in';
+      teleport.t = 0;
+      this.placeCube(teleport.to);
+      this.cubeRoot.scale.setScalar(0);
+      this.fireBeam(teleport.to, GATEWAY_HEX);
+      return;
+    }
+
+    teleport.t = Math.min(1, teleport.t + dt / TELEPORT_IN_SECONDS);
+    const scale = easeOutCubic(teleport.t);
+    this.cubeRoot.scale.setScalar(scale);
+    this.cubeRoot.position.y = TILE / 2 + (1 - scale) * 0.55;
+
+    if (teleport.t < 1) return;
+    this.teleport = null;
+    this.cubeRoot.scale.setScalar(1);
+    this.syncCube();
+    this.refreshHints();
+    teleport.done();
   }
 
   private updateBump(dt: number): void {
